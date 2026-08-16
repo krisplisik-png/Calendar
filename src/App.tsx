@@ -93,8 +93,14 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    if (editingLesson) await updateLesson(editingLesson.id, input);
-    else await createLesson(profile.schoolId, input);
+    const { students, ...lessonFields } = input;
+    const statusDate = editingOccurrenceDate ?? input.date;
+    const studentRoster = students.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
+    const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkDone }]));
+    const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
+    const payload = { ...lessonFields, studentRoster, studentStatusByDate };
+    if (editingLesson) await updateLesson(editingLesson.id, payload);
+    else await createLesson(profile.schoolId, payload);
   }
   async function deleteLesson(scope: 'occurrence' | 'series') {
     if (!editingLesson) return;
@@ -146,6 +152,6 @@ export function App() {
       </section>
     </main>
     {groupDialog && <GroupDialog onClose={() => setGroupDialog(false)} onSave={saveGroup} />}
-    {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} initialDate={initialDate} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={editingLesson ? deleteLesson : undefined} />}
+    {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={editingLesson ? deleteLesson : undefined} />}
   </div>;
 }

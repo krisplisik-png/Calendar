@@ -1,17 +1,25 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import type { Group, GroupKind, Lesson } from '../types';
+
+export interface StudentStatusInput {
+  id: string;
+  fullName: string;
+  attended: boolean;
+  homeworkDone: boolean;
+}
 
 export interface LessonInput {
   groupId: string; date: string; startTime: string; endTime: string;
   course: string; unit: string; lesson: string; topic: string; homework: string; notes: string;
   recurrenceWeekdays: number[]; recurrenceUntil: string; excludedDates: string[];
+  students: StudentStatusInput[];
 }
 
-const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [] });
+const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [] });
 
-export function LessonDialog({ groups, lesson, initialDate, onClose, onSave, onDelete }: {
-  groups: Group[]; lesson: Lesson | null; initialDate?: string; onClose: () => void;
+export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onClose, onSave, onDelete }: {
+  groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
   onSave: (value: LessonInput) => Promise<void>;
   onDelete?: (scope: 'occurrence' | 'series') => Promise<void>;
 }) {
@@ -24,13 +32,16 @@ export function LessonDialog({ groups, lesson, initialDate, onClose, onSave, onD
     const existingGroup = lesson ? groups.find(group => group.id === lesson.groupId) : undefined;
     const initialKind = existingGroup?.kind ?? (lesson ? 'group' : 'individual');
     setSelectedKind(initialKind);
+    const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
+    const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime,
       course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '',
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
+      students: (lesson.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false })),
     } : { ...empty(), groupId: '', date: initialDate ?? empty().date });
     setRepeats(Boolean(lesson?.recurrenceWeekdays?.length && lesson.recurrenceUntil));
-  }, [lesson, groups, initialDate]);
+  }, [lesson, groups, initialDate, occurrenceDate]);
   const availableParticipants = groups.filter(group => (group.kind ?? 'group') === selectedKind);
   const kindLabels: Array<{ kind: GroupKind; label: string }> = [
     { kind: 'individual', label: 'Индивидуал' },
@@ -39,7 +50,16 @@ export function LessonDialog({ groups, lesson, initialDate, onClose, onSave, onD
   ];
   function selectKind(kind: GroupKind) {
     setSelectedKind(kind);
-    setValue(current => ({ ...current, groupId: '' }));
+    setValue(current => ({ ...current, groupId: '', students: kind === 'group' ? current.students : [] }));
+  }
+  function addStudent() {
+    setValue(current => ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false }] }));
+  }
+  function updateStudent(id: string, patch: Partial<StudentStatusInput>) {
+    setValue(current => ({ ...current, students: current.students.map(student => student.id === id ? { ...student, ...patch } : student) }));
+  }
+  function removeStudent(id: string) {
+    setValue(current => ({ ...current, students: current.students.filter(student => student.id !== id) }));
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -65,6 +85,18 @@ export function LessonDialog({ groups, lesson, initialDate, onClose, onSave, onD
       <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required /></label></div>
       <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} /></label></div>
       <div className="form-grid"><label>Юнит<input value={value.unit} onChange={e => setValue({ ...value, unit: e.target.value })} /></label><label>Урок<input value={value.lesson} onChange={e => setValue({ ...value, lesson: e.target.value })} /></label></div>
+      {selectedKind === 'group' && <section className="student-journal">
+        <div className="student-journal-header"><div><span className="field-caption">Ученики группы</span><small>Посещение и домашняя работа на {occurrenceDate ?? value.date}</small></div><button type="button" className="ghost-button" onClick={addStudent}><Plus size={15} />Добавить ФИ</button></div>
+        {value.students.length ? <div className="student-list">
+          <div className="student-list-head"><span>Фамилия и имя</span><span>Посещение</span><span>Домашняя работа</span><span /></div>
+          {value.students.map(student => <div className="student-row" key={student.id}>
+            <input aria-label="Фамилия и имя ученика" placeholder="Фамилия и имя" value={student.fullName} onChange={e => updateStudent(student.id, { fullName: e.target.value })} required />
+            <button type="button" className={student.attended ? 'status-toggle positive' : 'status-toggle negative'} onClick={() => updateStudent(student.id, { attended: !student.attended })}>{student.attended ? 'Был(а)' : 'Не был(а)'}</button>
+            <button type="button" className={student.homeworkDone ? 'status-toggle positive' : 'status-toggle negative'} onClick={() => updateStudent(student.id, { homeworkDone: !student.homeworkDone })}>{student.homeworkDone ? 'Была' : 'Не была'}</button>
+            <button type="button" className="remove-student" onClick={() => removeStudent(student.id)} aria-label="Удалить ученика из списка"><Trash2 size={15} /></button>
+          </div>)}
+        </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
+      </section>}
       <section className="recurrence-section">
         <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => setRepeats(e.target.checked)} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">

@@ -25,6 +25,16 @@ export interface Group {
   updatedAt: Timestamp;
 }
 
+export interface StudentRosterItem {
+  id: string;
+  fullName: string;
+}
+
+export interface StudentLessonStatus {
+  attended: boolean;
+  homeworkDone: boolean;
+}
+
 export interface Lesson {
   id: string;
   schoolId: string;
@@ -42,6 +52,8 @@ export interface Lesson {
   recurrenceWeekdays?: number[];
   recurrenceUntil?: string;
   excludedDates?: string[];
+  studentRoster?: StudentRosterItem[];
+  studentStatusByDate?: Record<string, Record<string, StudentLessonStatus>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
