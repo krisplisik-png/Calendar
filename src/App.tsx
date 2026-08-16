@@ -12,7 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, removeLesson, subscribeToGroups, subscribeToLessons, updateLesson } from './data/firestore';
+import { createGroup, createLesson, removeGroup, removeLesson, subscribeToGroups, subscribeToLessons, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson } from './types';
 
@@ -73,6 +73,19 @@ export function App() {
     return next;
   });
   async function saveGroup(input: GroupInput) { await createGroup(profile.schoolId, input); }
+  async function deleteGroup(group: Group) {
+    try {
+      await removeGroup(group.id);
+      setSelectedGroups(current => {
+        const next = new Set(current);
+        next.delete(group.id);
+        return next;
+      });
+    } catch (nextError) {
+      setDataError(humanizeFirebaseError(nextError));
+      throw nextError;
+    }
+  }
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (editingLesson) await updateLesson(editingLesson.id, input);
@@ -91,7 +104,7 @@ export function App() {
   }
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onDeleteGroup={deleteGroup} onLogout={logout} />
     <main className="workspace">
       <header className="topbar">
         <div><p className="eyebrow">КАЛЕНДАРЬ ШКОЛЫ</p><h1>Расписание</h1></div>

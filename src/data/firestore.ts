@@ -32,6 +32,10 @@ export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 
   });
 }
 
+export async function removeGroup(id: string) {
+  return deleteDoc(doc(db, 'groups', id));
+}
+
 export async function createLesson(schoolId: string, input: Omit<Lesson, 'id' | 'schoolId' | 'createdAt' | 'updatedAt'>) {
   return addDoc(collection(db, 'lessons'), {
     ...input, schoolId, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
