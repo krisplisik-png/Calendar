@@ -39,6 +39,9 @@ export interface Lesson {
   topic?: string;
   homework?: string;
   notes?: string;
+  recurrenceWeekdays?: number[];
+  recurrenceUntil?: string;
+  excludedDates?: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
