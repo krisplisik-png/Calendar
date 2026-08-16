@@ -16,14 +16,14 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onLog
     <div className="brand"><CalendarDays size={24} /><span>Мой календарь</span></div>
     <nav><div className="nav-active"><CalendarDays size={18} />Расписание</div></nav>
     <div className="sidebar-section">
-      <div className="section-title"><span><Users size={16} />Группы</span><button onClick={onAddGroup} aria-label="Добавить группу"><Plus size={17} /></button></div>
+      <div className="section-title"><span><Users size={16} />Ученики и группы</span><button onClick={onAddGroup} aria-label="Добавить ученика или группу"><Plus size={17} /></button></div>
       <div className="group-list">
         {groups.map(group => <label className="group-filter" key={group.id}>
           <input type="checkbox" checked={selected.size === 0 || selected.has(group.id)} onChange={() => onToggle(group.id)} />
           <span className="color-dot" style={{ background: group.color }} />
-          <span>{group.name}</span>
+          <span>{group.name}<small className="kind-label">{(group.kind ?? 'group') === 'group' ? 'группа' : group.kind === 'pair' ? 'пара' : 'индивидуально'}</small></span>
         </label>)}
-        {!groups.length && <p className="sidebar-empty">Добавьте первую группу</p>}
+        {!groups.length && <p className="sidebar-empty">Добавьте ученика или группу</p>}
       </div>
     </div>
     <div className="profile-block">

@@ -1,6 +1,7 @@
 import type { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'admin' | 'teacher' | 'parent';
+export type GroupKind = 'group' | 'pair' | 'individual';
 
 export interface UserProfile {
   name: string;
@@ -14,6 +15,7 @@ export interface Group {
   schoolId: string;
   teacherId?: string;
   name: string;
+  kind?: GroupKind;
   color: string;
   course?: string;
   level?: string;
