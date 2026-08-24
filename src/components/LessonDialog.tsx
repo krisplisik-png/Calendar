@@ -14,9 +14,10 @@ export interface LessonInput {
   course: string; unit: string; lesson: string; topic: string; homework: string; notes: string;
   recurrenceWeekdays: number[]; recurrenceUntil: string; excludedDates: string[];
   students: StudentStatusInput[];
+  billingType: 'subscription' | 'single';
 }
 
-const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [] });
+const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
 
 export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onClose, onSave, onDelete }: {
   groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
@@ -39,6 +40,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onCl
       course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '',
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
       students: (lesson.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false })),
+      billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),
     } : { ...empty(), groupId: '', date: initialDate ?? empty().date });
     setRepeats(Boolean(lesson?.recurrenceWeekdays?.length && lesson.recurrenceUntil));
   }, [lesson, groups, initialDate, occurrenceDate]);
@@ -83,6 +85,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onCl
       </fieldset>
       <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => setValue({ ...value, groupId: e.target.value })} required><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
       <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required /></label></div>
+      <fieldset className="billing-type"><legend>Оплата занятия</legend><label className={value.billingType === 'subscription' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'subscription'} onChange={() => setValue({ ...value, billingType: 'subscription' })} />По абонементу</label><label className={value.billingType === 'single' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'single'} onChange={() => setValue({ ...value, billingType: 'single' })} />Разовый урок</label></fieldset>
       <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} /></label></div>
       <div className="form-grid"><label>Юнит<input value={value.unit} onChange={e => setValue({ ...value, unit: e.target.value })} /></label><label>Урок<input value={value.lesson} onChange={e => setValue({ ...value, lesson: e.target.value })} /></label></div>
       {selectedKind === 'group' && <section className="student-journal">
@@ -98,7 +101,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onCl
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
       </section>}
       <section className="recurrence-section">
-        <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => setRepeats(e.target.checked)} /><span>Повторять занятие</span></label>
+        <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">
           <span className="field-caption">Дни недели</span>
           <div className="weekday-picker">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((label, index) => <button type="button" className={value.recurrenceWeekdays.includes(index + 1) ? 'selected' : ''} onClick={() => toggleWeekday(index + 1)} key={label}>{label}</button>)}</div>

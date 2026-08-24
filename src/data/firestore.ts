@@ -26,7 +26,7 @@ export function subscribeToLessons(schoolId: string, next: (items: Lesson[]) => 
   }, error);
 }
 
-export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget'>) {
+export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget' | 'subscriptionLessonPrice' | 'singleLessonPrice'>) {
   return addDoc(collection(db, 'groups'), {
     ...input, schoolId, studentIds: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });

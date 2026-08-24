@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countParticipantLessons, getMonthPeriod, getPaymentStatus } from './payments';
+import { calculateAmountDue, countParticipantLessons, getMonthPeriod, getPaymentStatus } from './payments';
 import type { Lesson } from '../types';
 
 const stamp = {} as Lesson['createdAt'];
@@ -13,7 +13,11 @@ describe('payment month calculations', () => {
 
   it('counts only visible occurrences in the selected month', () => {
     const lessons: Lesson[] = [{ id: '1', schoolId: 'peakway', groupId: 'g1', date: '2026-08-03', startTime: '10:00', endTime: '11:00', recurrenceWeekdays: [1], recurrenceUntil: '2026-09-07', excludedDates: ['2026-08-17'], createdAt: stamp, updatedAt: stamp }];
-    expect(countParticipantLessons(lessons, 'g1', '2026-08', '2026-08-20')).toEqual({ scheduled: 4, completed: 2 });
+    expect(countParticipantLessons(lessons, 'g1', '2026-08', '2026-08-20')).toEqual({ scheduled: 4, completed: 2, subscription: 4, single: 0 });
+  });
+
+  it('calculates the invoice from subscription and single lesson prices', () => {
+    expect(calculateAmountDue(8, 900, 1, 1200)).toBe(8400);
   });
 
   it('calculates payment status', () => {

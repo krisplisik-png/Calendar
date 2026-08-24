@@ -22,6 +22,8 @@ export interface Group {
   studentIds: string[];
   notes?: string;
   monthlyLessonTarget?: 6 | 7 | 8 | 9 | 10;
+  subscriptionLessonPrice?: number;
+  singleLessonPrice?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -46,6 +48,10 @@ export interface Payment {
   status: PaymentStatus;
   paymentMethod?: 'cash' | 'transfer' | 'other';
   notes?: string;
+  subscriptionLessons?: number;
+  singleLessons?: number;
+  subscriptionLessonPrice?: number;
+  singleLessonPrice?: number;
   createdBy: string;
   updatedBy: string;
   createdAt: Timestamp;
@@ -76,6 +82,7 @@ export interface Lesson {
   topic?: string;
   homework?: string;
   notes?: string;
+  billingType?: 'subscription' | 'single';
   recurrenceWeekdays?: number[];
   recurrenceUntil?: string;
   excludedDates?: string[];
