@@ -96,8 +96,14 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
           <div className="student-list-head"><span>Фамилия и имя</span><span>Посещение</span><span>Домашняя работа</span><span /></div>
           {value.students.map(student => <div className="student-row" key={student.id}>
             <input aria-label="Фамилия и имя ученика" placeholder="Фамилия и имя" value={student.fullName} onChange={e => updateStudent(student.id, { fullName: e.target.value })} required />
-            <button type="button" className={student.attended ? 'status-toggle positive' : 'status-toggle negative'} onClick={() => updateStudent(student.id, { attended: !student.attended })}>{student.attended ? 'Был(а)' : 'Не был(а)'}</button>
-            <button type="button" className={student.homeworkDone ? 'status-toggle positive' : 'status-toggle negative'} onClick={() => updateStudent(student.id, { homeworkDone: !student.homeworkDone })}>{student.homeworkDone ? 'Была' : 'Не была'}</button>
+            <div className="status-choice" aria-label="Посещение">
+              <button type="button" className={student.attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(student.id, { attended: true })}>Был(а)</button>
+              <button type="button" className={!student.attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(student.id, { attended: false })}>Не был(а)</button>
+            </div>
+            <div className="status-choice" aria-label="Домашняя работа">
+              <button type="button" className={student.homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(student.id, { homeworkDone: true })}>Была</button>
+              <button type="button" className={!student.homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(student.id, { homeworkDone: false })}>Не была</button>
+            </div>
             <button type="button" className="remove-student" onClick={() => removeStudent(student.id)} aria-label="Удалить ученика из списка"><Trash2 size={15} /></button>
           </div>)}
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
