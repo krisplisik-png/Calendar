@@ -19,8 +19,9 @@ export interface LessonInput {
 
 const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
 
-export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onClose, onSave, onDelete }: {
+export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teacherMode = false, onClose, onSave, onDelete }: {
   groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
+  teacherMode?: boolean;
   onSave: (value: LessonInput) => Promise<void>;
   onDelete?: (scope: 'occurrence' | 'series') => Promise<void>;
 }) {
@@ -76,18 +77,19 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onCl
   return <div className="dialog-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
     <form className="dialog lesson-dialog" onSubmit={submit}>
       <header><div><p className="eyebrow">РАСПИСАНИЕ</p><h2>{lesson ? 'Редактировать занятие' : 'Новое занятие'}</h2></div><button type="button" onClick={onClose}><X /></button></header>
+      {teacherMode && <div className="teacher-mode-note">Режим учителя: можно отметить посещение и домашнюю работу, а также написать домашнее задание.</div>}
       <fieldset className="lesson-kind-options">
         <legend>Формат занятия</legend>
         {kindLabels.map(option => <label className={selectedKind === option.kind ? 'kind-option selected' : 'kind-option'} key={option.kind}>
-          <input type="radio" name="lesson-kind" value={option.kind} checked={selectedKind === option.kind} onChange={() => selectKind(option.kind)} />
+          <input type="radio" name="lesson-kind" value={option.kind} checked={selectedKind === option.kind} onChange={() => selectKind(option.kind)} disabled={teacherMode} />
           <span>{option.label}</span>
         </label>)}
       </fieldset>
-      <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => setValue({ ...value, groupId: e.target.value })} required><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
-      <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required /></label></div>
-      <fieldset className="billing-type"><legend>Оплата занятия</legend><label className={value.billingType === 'subscription' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'subscription'} onChange={() => setValue({ ...value, billingType: 'subscription' })} />По абонементу</label><label className={value.billingType === 'single' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'single'} onChange={() => setValue({ ...value, billingType: 'single' })} />Разовый урок</label></fieldset>
-      <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} /></label></div>
-      <div className="form-grid"><label>Юнит<input value={value.unit} onChange={e => setValue({ ...value, unit: e.target.value })} /></label><label>Урок<input value={value.lesson} onChange={e => setValue({ ...value, lesson: e.target.value })} /></label></div>
+      <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => setValue({ ...value, groupId: e.target.value })} required disabled={teacherMode}><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
+      <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required disabled={teacherMode} /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required disabled={teacherMode} /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required disabled={teacherMode} /></label></div>
+      <fieldset className="billing-type"><legend>Оплата занятия</legend><label className={value.billingType === 'subscription' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'subscription'} onChange={() => setValue({ ...value, billingType: 'subscription' })} disabled={teacherMode} />По абонементу</label><label className={value.billingType === 'single' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'single'} onChange={() => setValue({ ...value, billingType: 'single' })} disabled={teacherMode} />Разовый урок</label></fieldset>
+      <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} disabled={teacherMode} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} disabled={teacherMode} /></label></div>
+      <div className="form-grid"><label>Юнит<input value={value.unit} onChange={e => setValue({ ...value, unit: e.target.value })} disabled={teacherMode} /></label><label>Урок<input value={value.lesson} onChange={e => setValue({ ...value, lesson: e.target.value })} disabled={teacherMode} /></label></div>
       {selectedKind === 'group' && <section className="student-journal">
         <div className="student-journal-header"><div><span className="field-caption">Ученики группы</span><small>Посещение и домашняя работа на {occurrenceDate ?? value.date}</small></div><button type="button" className="ghost-button" onClick={addStudent}><Plus size={15} />Добавить ФИ</button></div>
         {value.students.length ? <div className="student-list">
@@ -101,12 +103,12 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, onCl
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
       </section>}
       <section className="recurrence-section">
-        <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} /><span>Повторять занятие</span></label>
+        <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} disabled={teacherMode} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">
           <span className="field-caption">Дни недели</span>
-          <div className="weekday-picker">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((label, index) => <button type="button" className={value.recurrenceWeekdays.includes(index + 1) ? 'selected' : ''} onClick={() => toggleWeekday(index + 1)} key={label}>{label}</button>)}</div>
+          <div className="weekday-picker">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((label, index) => <button type="button" className={value.recurrenceWeekdays.includes(index + 1) ? 'selected' : ''} onClick={() => toggleWeekday(index + 1)} disabled={teacherMode} key={label}>{label}</button>)}</div>
           {!value.recurrenceWeekdays.length && <small className="validation-hint">Выберите хотя бы один день</small>}
-          <label>Повторять до<input type="date" min={value.date} value={value.recurrenceUntil} onChange={e => setValue({ ...value, recurrenceUntil: e.target.value })} required={repeats} /></label>
+          <label>Повторять до<input type="date" min={value.date} value={value.recurrenceUntil} onChange={e => setValue({ ...value, recurrenceUntil: e.target.value })} required={repeats} disabled={teacherMode} /></label>
         </div>}
       </section>
       <label>Домашнее задание<textarea value={value.homework} onChange={e => setValue({ ...value, homework: e.target.value })} /></label>

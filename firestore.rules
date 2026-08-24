@@ -5,23 +5,25 @@ service cloud.firestore {
     function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function sameSchool(schoolId) { return signedIn() && profile().schoolId == schoolId; }
     function managesFinance() { return signedIn() && profile().role in ['owner', 'admin']; }
+    function manager() { return signedIn() && profile().role in ['owner', 'admin']; }
+    function assignedTeacher(data) { return signedIn() && profile().role == 'teacher' && data.teacherId == request.auth.uid; }
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || profile().role in ['owner', 'admin']);
     }
 
     match /groups/{groupId} {
-      allow read: if sameSchool(resource.data.schoolId);
-      allow create: if sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
-      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
-      allow delete: if sameSchool(resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
+      allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
     match /lessons/{lessonId} {
-      allow read: if sameSchool(resource.data.schoolId);
-      allow create: if sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
-      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
-      allow delete: if sameSchool(resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'updatedAt'])));
+      allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
     match /payments/{paymentId} {

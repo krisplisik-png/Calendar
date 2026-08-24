@@ -10,6 +10,10 @@ export interface UserProfile {
   schoolId: string;
 }
 
+export interface SchoolUser extends UserProfile {
+  id: string;
+}
+
 export interface Group {
   id: string;
   schoolId: string;
