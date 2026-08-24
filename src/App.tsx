@@ -16,6 +16,7 @@ import { createGroup, createLesson, removeGroup, removeLesson, subscribeToGroups
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
+import { PaymentsPage } from './components/PaymentsPage';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
 
@@ -33,6 +34,7 @@ export function App() {
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [editingOccurrenceDate, setEditingOccurrenceDate] = useState<string | null>(null);
   const [initialDate, setInitialDate] = useState<string>();
+  const [activeView, setActiveView] = useState<'calendar' | 'payments'>('calendar');
 
   useEffect(() => { const timer = window.setInterval(() => setNow(DateTime.now()), 30_000); return () => clearInterval(timer); }, []);
   useEffect(() => localStorage.setItem('calendar-zone', zone), [zone]);
@@ -65,7 +67,7 @@ export function App() {
 
   if (loading) return <LoadingScreen />;
   if (!firebaseUser || !userProfile) return <LoginPage authError={authError} />;
-  if (userProfile.role !== 'admin') return <main className="access-denied"><h1>Раздел пока доступен только администратору</h1><button onClick={logout}>Выйти</button></main>;
+  if (!['owner', 'admin'].includes(userProfile.role)) return <main className="access-denied"><h1>Раздел пока доступен только владельцу и администратору</h1><button onClick={logout}>Выйти</button></main>;
   const profile = userProfile;
 
   const openNewLesson = (date?: string) => { setEditingLesson(null); setEditingOccurrenceDate(null); setInitialDate(date); setLessonDialog(true); };
@@ -124,8 +126,9 @@ export function App() {
   }
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onDeleteGroup={deleteGroup} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} onLogout={logout} />
     <main className="workspace">
+      {activeView === 'payments' ? <PaymentsPage profile={profile} groups={groups} lessons={lessons} onError={setDataError} /> : <>
       <header className="topbar">
         <div><p className="eyebrow">КАЛЕНДАРЬ ШКОЛЫ</p><h1>Расписание</h1></div>
         <div className="clocks"><Clock3 size={18} /><div><span>Пермь {now.setZone('Asia/Yekaterinburg').toFormat('HH:mm')}</span><small>Москва {now.setZone('Europe/Moscow').toFormat('HH:mm')}</small></div><button onClick={() => setZone(zone === 'Asia/Yekaterinburg' ? 'Europe/Moscow' : 'Asia/Yekaterinburg')} title="Сменить часовой пояс"><ChevronLeft size={15} /><ChevronRight size={15} /></button></div>
@@ -150,6 +153,8 @@ export function App() {
           eventResize={resizeLesson}
         />
       </section>
+      </>}
+      {dataError && activeView === 'payments' && <div className="data-error floating-error" role="alert">{dataError}<button onClick={() => setDataError(null)}>×</button></div>}
     </main>
     {groupDialog && <GroupDialog onClose={() => setGroupDialog(false)} onSave={saveGroup} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={editingLesson ? deleteLesson : undefined} />}

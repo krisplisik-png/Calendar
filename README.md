@@ -13,7 +13,9 @@ npm install
 npm run dev
 ```
 
-Firebase Analytics не используется. В Firestore ожидаются коллекции `users`, `groups` и `lessons`. Документ `users/{uid}` должен содержать `name`, `email`, `role` и `schoolId`.
+Firebase Analytics не используется. В Firestore ожидаются коллекции `users`, `groups`, `lessons` и `payments`. Документ `users/{uid}` должен содержать `name`, `email`, `role` и `schoolId`.
+
+Раздел «Оплаты» доступен ролям `owner` и `admin`. Для применения правил из репозитория опубликуйте `firestore.rules` через Firebase CLI или вставьте их в Firebase Console после проверки совместимости с действующими правилами проекта.
 
 ## Проверка
 

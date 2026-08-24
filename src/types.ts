@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'admin' | 'teacher' | 'parent';
+export type UserRole = 'owner' | 'admin' | 'teacher' | 'parent';
 export type GroupKind = 'group' | 'pair' | 'individual';
 
 export interface UserProfile {
@@ -21,6 +21,33 @@ export interface Group {
   level?: string;
   studentIds: string[];
   notes?: string;
+  monthlyLessonTarget?: 6 | 7 | 8 | 9 | 10;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
+
+export interface Payment {
+  id: string;
+  schoolId: string;
+  participantId: string;
+  participantNameSnapshot: string;
+  participantKind: GroupKind;
+  month: string;
+  periodStart: string;
+  periodEnd: string;
+  plannedLessons: number;
+  scheduledLessons: number;
+  completedLessons: number;
+  amountDue: number;
+  amountPaid: number;
+  currency: 'RUB';
+  status: PaymentStatus;
+  paymentMethod?: 'cash' | 'transfer' | 'other';
+  notes?: string;
+  createdBy: string;
+  updatedBy: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

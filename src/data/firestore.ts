@@ -1,9 +1,9 @@
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp,
+  addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc,
   updateDoc, where, type DocumentData, type FirestoreError,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import type { Group, Lesson } from '../types';
+import type { Group, Lesson, Payment } from '../types';
 
 type Unsubscribe = () => void;
 type ErrorHandler = (error: FirestoreError) => void;
@@ -26,10 +26,14 @@ export function subscribeToLessons(schoolId: string, next: (items: Lesson[]) => 
   }, error);
 }
 
-export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes'>) {
+export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget'>) {
   return addDoc(collection(db, 'groups'), {
     ...input, schoolId, studentIds: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
+}
+
+export async function updateGroup(id: string, input: Partial<Omit<Group, 'id' | 'schoolId' | 'createdAt'>>) {
+  return updateDoc(doc(db, 'groups', id), { ...input, updatedAt: serverTimestamp() });
 }
 
 export async function removeGroup(id: string) {
@@ -48,4 +52,13 @@ export async function updateLesson(id: string, input: Partial<Omit<Lesson, 'id' 
 
 export async function removeLesson(id: string) {
   return deleteDoc(doc(db, 'lessons', id));
+}
+
+export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {
+  const paymentsQuery = query(collection(db, 'payments'), where('schoolId', '==', schoolId), where('month', '==', month));
+  return onSnapshot(paymentsQuery, snapshot => next(snapshot.docs.map(item => mapDocument<Payment>(item.data(), item.id))), error);
+}
+
+export async function savePayment(payment: Omit<Payment, 'createdAt' | 'updatedAt'>) {
+  return setDoc(doc(db, 'payments', payment.id), { ...payment, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
 }

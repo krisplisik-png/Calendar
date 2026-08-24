@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function sameSchool(schoolId) { return signedIn() && profile().schoolId == schoolId; }
+    function managesFinance() { return signedIn() && profile().role in ['owner', 'admin']; }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || profile().role in ['owner', 'admin']);
+    }
+
+    match /groups/{groupId} {
+      allow read: if sameSchool(resource.data.schoolId);
+      allow create: if sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow delete: if sameSchool(resource.data.schoolId) && profile().role in ['owner', 'admin'];
+    }
+
+    match /lessons/{lessonId} {
+      allow read: if sameSchool(resource.data.schoolId);
+      allow create: if sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && profile().role in ['owner', 'admin'];
+      allow delete: if sameSchool(resource.data.schoolId) && profile().role in ['owner', 'admin'];
+    }
+
+    match /payments/{paymentId} {
+      allow read: if sameSchool(resource.data.schoolId) && managesFinance();
+      allow create: if sameSchool(request.resource.data.schoolId) && managesFinance();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && managesFinance();
+      allow delete: if sameSchool(resource.data.schoolId) && managesFinance();
+    }
+  }
+}

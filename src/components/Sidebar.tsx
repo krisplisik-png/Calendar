@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, LogOut, Plus, Trash2, Users } from 'lucide-react';
+import { CalendarDays, CreditCard, LogOut, Plus, Trash2, Users } from 'lucide-react';
 import type { Group, UserProfile } from '../types';
 
 interface Props {
@@ -9,10 +9,12 @@ interface Props {
   onToggle: (id: string) => void;
   onAddGroup: () => void;
   onDeleteGroup: (group: Group) => Promise<void>;
+  activeView: 'calendar' | 'payments';
+  onNavigate: (view: 'calendar' | 'payments') => void;
   onLogout: () => void;
 }
 
-export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onDeleteGroup, onLogout }: Props) {
+export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onDeleteGroup, activeView, onNavigate, onLogout }: Props) {
   const displayName = profile.name?.trim() || profile.email || 'Администратор';
   const [pendingDelete, setPendingDelete] = useState<Group | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -30,7 +32,7 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onDel
   }
   return <aside className="sidebar">
     <div className="brand"><CalendarDays size={24} /><span>Мой календарь</span></div>
-    <nav><div className="nav-active"><CalendarDays size={18} />Расписание</div></nav>
+    <nav className="sidebar-nav"><button className={activeView === 'calendar' ? 'nav-active' : ''} onClick={() => onNavigate('calendar')}><CalendarDays size={18} />Расписание</button><button className={activeView === 'payments' ? 'nav-active' : ''} onClick={() => onNavigate('payments')}><CreditCard size={18} />Оплаты</button></nav>
     <div className="sidebar-section">
       <div className="section-title"><span><Users size={16} />Ученики и группы</span><button onClick={onAddGroup} aria-label="Добавить ученика или группу"><Plus size={17} /></button></div>
       <div className="group-list">
