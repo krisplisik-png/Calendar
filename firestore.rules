@@ -32,5 +32,34 @@ service cloud.firestore {
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && managesFinance();
       allow delete: if sameSchool(resource.data.schoolId) && managesFinance();
     }
+
+    match /students/{studentId} {
+      allow read: if sameSchool(resource.data.schoolId) && manager();
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
+      allow delete: if sameSchool(resource.data.schoolId) && manager();
+    }
+
+    match /parentAccess/{accessId} {
+      allow read: if sameSchool(resource.data.schoolId) && manager();
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
+      allow delete: if sameSchool(resource.data.schoolId) && manager();
+    }
+
+    match /parentViews/{token} {
+      allow get: if resource.data.active == true;
+      allow list: if false;
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && manager();
+      allow delete: if sameSchool(resource.data.schoolId) && manager();
+
+      match /months/{month} {
+        allow get: if get(/databases/$(database)/documents/parentViews/$(token)).data.active == true;
+        allow list: if false;
+        allow create, update: if manager() && sameSchool(getAfter(/databases/$(database)/documents/parentViews/$(token)).data.schoolId);
+        allow delete: if manager() && sameSchool(get(/databases/$(database)/documents/parentViews/$(token)).data.schoolId);
+      }
+    }
   }
 }

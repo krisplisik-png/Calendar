@@ -72,6 +72,66 @@ export interface StudentLessonStatus {
   homeworkDone: boolean;
 }
 
+export interface Student {
+  id: string;
+  schoolId: string;
+  fullName: string;
+  groupIds: string[];
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface ParentAccess {
+  id: string;
+  schoolId: string;
+  token: string;
+  studentIds: string[];
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface ParentStudent {
+  id: string;
+  fullName: string;
+}
+
+export interface ParentLessonView {
+  id: string;
+  lessonId: string;
+  occurrenceDate: string;
+  studentIds: string[];
+  date: string;
+  startTime: string;
+  endTime: string;
+  groupName?: string;
+  course?: string;
+  teacherName?: string;
+  unit?: string;
+  lesson?: string;
+  topic?: string;
+  homework?: string;
+  status: 'scheduled' | 'cancelled' | 'completed';
+}
+
+export interface ParentView {
+  id: string;
+  schoolId: string;
+  active: boolean;
+  students: ParentStudent[];
+  availableMonths: string[];
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface ParentMonthView {
+  id: string;
+  month: string;
+  lessons: ParentLessonView[];
+  updatedAt?: Timestamp;
+}
+
 export interface Lesson {
   id: string;
   schoolId: string;

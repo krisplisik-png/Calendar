@@ -18,6 +18,10 @@ import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
 import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
+import { ParentAccessDialog } from './components/ParentAccessDialog';
+import { ParentPage } from './components/ParentPage';
+import { createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents } from './data/firestore';
+import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
 
@@ -38,6 +42,10 @@ export function App() {
   const [activeView, setActiveView] = useState<'calendar' | 'payments'>('calendar');
   const [teachers, setTeachers] = useState<SchoolUser[]>([]);
   const [teacherDialog, setTeacherDialog] = useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [parentAccess, setParentAccess] = useState<ParentAccess[]>([]);
+  const [parentDialog, setParentDialog] = useState(false);
+  const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
 
   useEffect(() => { const timer = window.setInterval(() => setNow(DateTime.now()), 30_000); return () => clearInterval(timer); }, []);
   useEffect(() => localStorage.setItem('calendar-zone', zone), [zone]);
@@ -48,7 +56,9 @@ export function App() {
     const offGroups = subscribeToGroups(userProfile.schoolId, setGroups, handleError, teacherId);
     const offLessons = subscribeToLessons(userProfile.schoolId, setLessons, handleError, teacherId);
     const offTeachers = ['owner', 'admin'].includes(userProfile.role) ? subscribeToTeachers(userProfile.schoolId, setTeachers, handleError) : () => undefined;
-    return () => { offGroups(); offLessons(); offTeachers(); };
+    const offStudents = ['owner', 'admin'].includes(userProfile.role) ? subscribeToStudents(userProfile.schoolId, setStudents, handleError) : () => undefined;
+    const offParentAccess = ['owner', 'admin'].includes(userProfile.role) ? subscribeToParentAccess(userProfile.schoolId, setParentAccess, handleError) : () => undefined;
+    return () => { offGroups(); offLessons(); offTeachers(); offStudents(); offParentAccess(); };
   }, [userProfile, firebaseUser]);
 
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
@@ -70,6 +80,7 @@ export function App() {
     };
   })), [lessons, groupMap, selectedGroups, search]);
 
+  if (parentToken) return <ParentPage token={parentToken} />;
   if (loading) return <LoadingScreen />;
   if (!firebaseUser || !userProfile) return <LoginPage authError={authError} />;
   const profile = userProfile;
@@ -85,10 +96,12 @@ export function App() {
     if (next.size === groups.length) next.clear();
     return next;
   });
-  async function saveGroup(input: GroupInput) { await createGroup(profile.schoolId, input); }
+  async function refreshParentViews() { if (canManage) await rebuildParentViewsForSchool(profile.schoolId); }
+  async function saveGroup(input: GroupInput) { await createGroup(profile.schoolId, input); await refreshParentViews(); }
   async function deleteGroup(group: Group) {
     try {
       await removeGroup(group.id);
+      await refreshParentViews();
       setSelectedGroups(current => {
         const next = new Set(current);
         next.delete(group.id);
@@ -115,11 +128,13 @@ export function App() {
     const payload = { ...lessonFields, teacherId: assignedTeacherId, studentRoster, studentStatusByDate };
     if (editingLesson) await updateLesson(editingLesson.id, payload);
     else await createLesson(profile.schoolId, payload);
+    await refreshParentViews();
   }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
       await setGroupTeacher(group.id, teacherId);
       await Promise.all(lessons.filter(lesson => lesson.groupId === group.id).map(lesson => setLessonTeacher(lesson.id, teacherId)));
+      await refreshParentViews();
     } catch (error) {
       setDataError(humanizeFirebaseError(error));
     }
@@ -129,24 +144,26 @@ export function App() {
     if (scope === 'occurrence' && editingOccurrenceDate && editingLesson.recurrenceWeekdays?.length) {
       const excludedDates = Array.from(new Set([...(editingLesson.excludedDates ?? []), editingOccurrenceDate])).sort();
       await updateLesson(editingLesson.id, { excludedDates });
+      await refreshParentViews();
       return;
     }
     await removeLesson(editingLesson.id);
+    await refreshParentViews();
   }
   async function moveLesson(info: EventDropArg) {
     const start = info.event.start; const end = info.event.end;
     if (!start || !end) return info.revert();
-    try { await updateLesson(info.event.id, { date: DateTime.fromJSDate(start).toFormat('yyyy-MM-dd'), startTime: DateTime.fromJSDate(start).toFormat('HH:mm'), endTime: DateTime.fromJSDate(end).toFormat('HH:mm') }); }
+    try { await updateLesson(info.event.id, { date: DateTime.fromJSDate(start).toFormat('yyyy-MM-dd'), startTime: DateTime.fromJSDate(start).toFormat('HH:mm'), endTime: DateTime.fromJSDate(end).toFormat('HH:mm') }); await refreshParentViews(); }
     catch { info.revert(); setDataError('Не удалось перенести занятие.'); }
   }
   async function resizeLesson(info: { event: EventDropArg['event']; revert: () => void }) {
     if (!info.event.end) return info.revert();
-    try { await updateLesson(info.event.id, { endTime: DateTime.fromJSDate(info.event.end).toFormat('HH:mm') }); }
+    try { await updateLesson(info.event.id, { endTime: DateTime.fromJSDate(info.event.end).toFormat('HH:mm') }); await refreshParentViews(); }
     catch { info.revert(); setDataError('Не удалось изменить длительность.'); }
   }
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => setGroupDialog(true)} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => setParentDialog(true)} onLogout={logout} />
     <main className="workspace">
       {activeView === 'payments' ? <PaymentsPage profile={profile} groups={groups} lessons={lessons} onError={setDataError} /> : <>
       <header className="topbar">
@@ -178,6 +195,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog onClose={() => setGroupDialog(false)} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onClose={() => setTeacherDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await refreshParentViews(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={refreshParentViews} onClose={() => setParentDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
 }
