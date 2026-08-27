@@ -126,7 +126,12 @@ export function App() {
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
     const selectedGroup = groups.find(group => group.id === input.groupId);
-    const payload = { ...lessonFields, teacherId: assignedTeacherId, studentRoster, studentStatusByDate };
+    const payload = {
+      ...lessonFields,
+      ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
+      studentRoster,
+      studentStatusByDate,
+    };
     if (editingLesson) {
       await updateLesson(editingLesson.id, payload);
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...payload }, selectedGroup);
