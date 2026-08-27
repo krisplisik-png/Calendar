@@ -29,6 +29,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
   const [value, setValue] = useState<LessonInput>(empty());
   const [selectedKind, setSelectedKind] = useState<GroupKind>('individual');
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [repeats, setRepeats] = useState(false);
   useEffect(() => {
@@ -67,10 +68,25 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (repeats && (!value.recurrenceWeekdays.length || !value.recurrenceUntil)) return;
-    if (selectedKind === 'group' && (!value.minAge || !value.maxAge || value.minAge > value.maxAge)) return;
+    setSaveError('');
+    if (repeats && (!value.recurrenceWeekdays.length || !value.recurrenceUntil)) {
+      setSaveError('Выберите дни недели и дату окончания повторений.');
+      return;
+    }
+    if (selectedKind === 'group' && (!value.minAge || !value.maxAge || value.minAge > value.maxAge)) {
+      setSaveError('Проверьте возраст: заполните оба поля, а возраст «от» должен быть не больше возраста «до».');
+      return;
+    }
     setBusy(true);
-    try { await onSave(repeats ? value : { ...value, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [] }); onClose(); } finally { setBusy(false); }
+    try {
+      await onSave(repeats ? value : { ...value, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [] });
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message.includes('permission-denied') || message.includes('Missing or insufficient permissions')
+        ? 'Firebase отклонил сохранение: не хватает прав доступа. Обновите страницу и войдите снова.'
+        : `Не удалось сохранить занятие: ${message}`);
+    } finally { setBusy(false); }
   }
   async function remove(scope: 'occurrence' | 'series') { if (!onDelete) return; setBusy(true); try { await onDelete(scope); onClose(); } finally { setBusy(false); } }
   function toggleWeekday(day: number) {
@@ -119,6 +135,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
       <label>Домашнее задание<textarea value={value.homework} onChange={e => setValue({ ...value, homework: e.target.value })} /></label>
       <label>Заметки<textarea value={value.notes} onChange={e => setValue({ ...value, notes: e.target.value })} /></label>
       {confirmDelete && <div className="delete-confirm lesson-delete-confirm" role="alert"><span>{lesson?.recurrenceWeekdays?.length ? 'Что нужно удалить?' : 'Точно удалить это занятие?'}</span><button type="button" className="ghost-button" onClick={() => setConfirmDelete(false)}>Отмена</button>{lesson?.recurrenceWeekdays?.length ? <><button type="button" className="danger-button" onClick={() => remove('occurrence')}>Только это занятие</button><button type="button" className="danger-button" onClick={() => remove('series')}>Всю серию</button></> : <button type="button" className="danger-button" onClick={() => remove('series')}>Да, удалить</button>}</div>}
+      {saveError && <div className="form-error" role="alert">{saveError}</div>}
       <footer>{onDelete && !confirmDelete && <button type="button" className="danger-button" onClick={() => setConfirmDelete(true)}><Trash2 size={16} />Удалить</button>}<span className="footer-spacer" /><button type="button" className="ghost-button" onClick={onClose}>Отмена</button><button className="primary-button" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></footer>
     </form>
   </div>;
