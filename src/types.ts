@@ -140,6 +140,8 @@ export interface Lesson {
   date: string;
   startTime: string;
   endTime: string;
+  minAge?: number;
+  maxAge?: number;
   course?: string;
   unit?: string;
   lesson?: string;

@@ -12,7 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, removeGroup, removeLesson, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateLesson } from './data/firestore';
+import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
@@ -125,9 +125,15 @@ export function App() {
       return;
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
+    const selectedGroup = groups.find(group => group.id === input.groupId);
     const payload = { ...lessonFields, teacherId: assignedTeacherId, studentRoster, studentStatusByDate };
-    if (editingLesson) await updateLesson(editingLesson.id, payload);
-    else await createLesson(profile.schoolId, payload);
+    if (editingLesson) {
+      await updateLesson(editingLesson.id, payload);
+      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...payload }, selectedGroup);
+    } else {
+      const created = await createLesson(profile.schoolId, payload);
+      await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
+    }
     await refreshParentViews();
   }
   async function assignTeacher(group: Group, teacherId: string) {
@@ -144,21 +150,23 @@ export function App() {
     if (scope === 'occurrence' && editingOccurrenceDate && editingLesson.recurrenceWeekdays?.length) {
       const excludedDates = Array.from(new Set([...(editingLesson.excludedDates ?? []), editingOccurrenceDate])).sort();
       await updateLesson(editingLesson.id, { excludedDates });
+      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, excludedDates }, groups.find(group => group.id === editingLesson.groupId));
       await refreshParentViews();
       return;
     }
     await removeLesson(editingLesson.id);
+    await removePublicLesson(editingLesson.id);
     await refreshParentViews();
   }
   async function moveLesson(info: EventDropArg) {
     const start = info.event.start; const end = info.event.end;
     if (!start || !end) return info.revert();
-    try { await updateLesson(info.event.id, { date: DateTime.fromJSDate(start).toFormat('yyyy-MM-dd'), startTime: DateTime.fromJSDate(start).toFormat('HH:mm'), endTime: DateTime.fromJSDate(end).toFormat('HH:mm') }); await refreshParentViews(); }
+    try { const patch = { date: DateTime.fromJSDate(start).toFormat('yyyy-MM-dd'), startTime: DateTime.fromJSDate(start).toFormat('HH:mm'), endTime: DateTime.fromJSDate(end).toFormat('HH:mm') }; const lesson = info.event.extendedProps.lesson as Lesson; await updateLesson(info.event.id, patch); await publishPublicLesson(info.event.id, profile.schoolId, { ...lesson, ...patch }, groups.find(group => group.id === lesson.groupId)); await refreshParentViews(); }
     catch { info.revert(); setDataError('Не удалось перенести занятие.'); }
   }
   async function resizeLesson(info: { event: EventDropArg['event']; revert: () => void }) {
     if (!info.event.end) return info.revert();
-    try { await updateLesson(info.event.id, { endTime: DateTime.fromJSDate(info.event.end).toFormat('HH:mm') }); await refreshParentViews(); }
+    try { const patch = { endTime: DateTime.fromJSDate(info.event.end).toFormat('HH:mm') }; const lesson = info.event.extendedProps.lesson as Lesson; await updateLesson(info.event.id, patch); await publishPublicLesson(info.event.id, profile.schoolId, { ...lesson, ...patch }, groups.find(group => group.id === lesson.groupId)); await refreshParentViews(); }
     catch { info.revert(); setDataError('Не удалось изменить длительность.'); }
   }
 

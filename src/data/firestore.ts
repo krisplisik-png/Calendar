@@ -67,6 +67,24 @@ export async function removeLesson(id: string) {
   return deleteDoc(doc(db, 'lessons', id));
 }
 
+export async function publishPublicLesson(id: string, schoolId: string, lesson: Partial<Lesson>, group?: Group) {
+  if (group?.kind !== 'group' || !lesson.minAge || !lesson.maxAge) {
+    return deleteDoc(doc(db, 'publicLessons', id));
+  }
+  return setDoc(doc(db, 'publicLessons', id), {
+    schoolId, groupId: group.id, groupName: group.name,
+    minAge: lesson.minAge, maxAge: lesson.maxAge,
+    date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime,
+    course: lesson.course ?? '', recurrenceWeekdays: lesson.recurrenceWeekdays ?? [],
+    recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function removePublicLesson(id: string) {
+  return deleteDoc(doc(db, 'publicLessons', id));
+}
+
 export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {
   const paymentsQuery = query(collection(db, 'payments'), where('schoolId', '==', schoolId), where('month', '==', month));
   return onSnapshot(paymentsQuery, snapshot => next(snapshot.docs.map(item => mapDocument<Payment>(item.data(), item.id))), error);

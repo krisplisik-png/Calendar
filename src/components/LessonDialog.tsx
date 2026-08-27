@@ -11,6 +11,7 @@ export interface StudentStatusInput {
 
 export interface LessonInput {
   groupId: string; date: string; startTime: string; endTime: string;
+  minAge?: number; maxAge?: number;
   course: string; unit: string; lesson: string; topic: string; homework: string; notes: string;
   recurrenceWeekdays: number[]; recurrenceUntil: string; excludedDates: string[];
   students: StudentStatusInput[];
@@ -37,7 +38,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
     setValue(lesson ? {
-      groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime,
+      groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
       course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '',
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
       students: (lesson.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false })),
@@ -67,6 +68,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (repeats && (!value.recurrenceWeekdays.length || !value.recurrenceUntil)) return;
+    if (selectedKind === 'group' && (!value.minAge || !value.maxAge || value.minAge > value.maxAge)) return;
     setBusy(true);
     try { await onSave(repeats ? value : { ...value, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [] }); onClose(); } finally { setBusy(false); }
   }
@@ -86,6 +88,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
         </label>)}
       </fieldset>
       <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => setValue({ ...value, groupId: e.target.value })} required disabled={teacherMode}><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
+      {selectedKind === 'group' && <div className="form-grid"><label>Возраст от<input type="number" min="3" max="18" value={value.minAge ?? ''} onChange={e => setValue({ ...value, minAge: e.target.value ? Number(e.target.value) : undefined })} required disabled={teacherMode} placeholder="Например, 7" /></label><label>Возраст до<input type="number" min="3" max="18" value={value.maxAge ?? ''} onChange={e => setValue({ ...value, maxAge: e.target.value ? Number(e.target.value) : undefined })} required disabled={teacherMode} placeholder="Например, 9" /></label></div>}
       <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required disabled={teacherMode} /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required disabled={teacherMode} /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required disabled={teacherMode} /></label></div>
       <fieldset className="billing-type"><legend>Оплата занятия</legend><label className={value.billingType === 'subscription' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'subscription'} onChange={() => setValue({ ...value, billingType: 'subscription' })} disabled={teacherMode} />По абонементу</label><label className={value.billingType === 'single' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'single'} onChange={() => setValue({ ...value, billingType: 'single' })} disabled={teacherMode} />Разовый урок</label></fieldset>
       <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} disabled={teacherMode} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} disabled={teacherMode} /></label></div>

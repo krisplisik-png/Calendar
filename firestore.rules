@@ -47,6 +47,13 @@ service cloud.firestore {
       allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
+    match /publicLessons/{lessonId} {
+      allow read: if true;
+      allow create: if sameSchool(request.resource.data.schoolId) && manager();
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
+      allow delete: if manager();
+    }
+
     match /parentViews/{token} {
       allow get: if resource.data.active == true;
       allow list: if false;
