@@ -151,6 +151,43 @@ export function App() {
       setDataError(humanizeFirebaseError(error));
     }
   }
+  async function assignSubstitute(group: Group, substituteTeacherId: string, dateFrom: string, dateTo: string) {
+    if (dateTo < dateFrom) throw new Error('Дата окончания замены не может быть раньше даты начала.');
+    try {
+      await updateGroup(group.id, { authorizedTeacherIds: Array.from(new Set([...(group.authorizedTeacherIds ?? []), substituteTeacherId])) });
+      let assignedCount = 0;
+      for (const source of lessons.filter(item => item.groupId === group.id)) {
+        const dates = expandLessonOccurrences(source).map(item => item.occurrenceDate).filter(date => date >= dateFrom && date <= dateTo);
+        if (!dates.length) continue;
+        if (source.recurrenceWeekdays?.length && source.recurrenceUntil) {
+          for (const date of dates) {
+            const statusForDate = source.studentStatusByDate?.[date];
+            const cloneInput = Object.fromEntries(Object.entries({
+              groupId: source.groupId, teacherId: substituteTeacherId, substituteForTeacherId: source.teacherId ?? '', substitutionDate: date,
+              date, startTime: source.startTime, endTime: source.endTime, course: source.course ?? '', unit: source.unit ?? '', lesson: source.lesson ?? '', topic: source.topic ?? '',
+              homework: source.homework ?? '', notes: source.notes ?? '', room: source.room ?? '', minAge: source.minAge, maxAge: source.maxAge,
+              billingType: source.billingType ?? 'subscription', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], studentRoster: source.studentRoster ?? [],
+              studentStatusByDate: statusForDate ? { [date]: statusForDate } : {},
+            }).filter(([, value]) => value !== undefined)) as unknown as Omit<Lesson, 'id' | 'schoolId' | 'createdAt' | 'updatedAt'>;
+            const created = await createLesson(profile.schoolId, cloneInput);
+            await publishPublicLesson(created.id, profile.schoolId, cloneInput, group);
+            assignedCount += 1;
+          }
+          const excludedDates = Array.from(new Set([...(source.excludedDates ?? []), ...dates])).sort();
+          await updateLesson(source.id, { excludedDates });
+          await publishPublicLesson(source.id, profile.schoolId, { ...source, excludedDates }, group);
+        } else {
+          await setLessonTeacher(source.id, substituteTeacherId);
+          assignedCount += 1;
+        }
+      }
+      await refreshParentViews();
+      return assignedCount;
+    } catch (error) {
+      setDataError(humanizeFirebaseError(error));
+      throw error;
+    }
+  }
   async function deleteLesson(scope: 'occurrence' | 'series') {
     if (!editingLesson) return;
     if (scope === 'occurrence' && editingOccurrenceDate && editingLesson.recurrenceWeekdays?.length) {
@@ -208,7 +245,7 @@ export function App() {
       {dataError && activeView === 'payments' && <div className="data-error floating-error" role="alert">{dataError}<button onClick={() => setDataError(null)}>×</button></div>}
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
-    {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onClose={() => setTeacherDialog(false)} />}
+    {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
     {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await refreshParentViews(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={refreshParentViews} onClose={() => setParentDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;

@@ -6,7 +6,7 @@ service cloud.firestore {
     function sameSchool(schoolId) { return signedIn() && profile().schoolId == schoolId; }
     function managesFinance() { return signedIn() && profile().role in ['owner', 'admin']; }
     function manager() { return signedIn() && profile().role in ['owner', 'admin']; }
-    function assignedTeacher(data) { return signedIn() && profile().role == 'teacher' && data.teacherId == request.auth.uid; }
+    function assignedTeacher(data) { return signedIn() && profile().role == 'teacher' && ((data.keys().hasAny(['teacherId']) && data.teacherId == request.auth.uid) || (data.keys().hasAny(['authorizedTeacherIds']) && request.auth.uid in data.authorizedTeacherIds)); }
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || profile().role in ['owner', 'admin']);

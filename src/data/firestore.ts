@@ -14,12 +14,16 @@ function mapDocument<T extends { id: string }>(data: DocumentData, id: string): 
 }
 
 export function subscribeToGroups(schoolId: string, next: (items: Group[]) => void, error: ErrorHandler, teacherId?: string): Unsubscribe {
-  const groupsQuery = teacherId
-    ? query(collection(db, 'groups'), where('schoolId', '==', schoolId), where('teacherId', '==', teacherId))
-    : query(collection(db, 'groups'), where('schoolId', '==', schoolId));
-  return onSnapshot(groupsQuery, snapshot => {
-    next(snapshot.docs.map(item => mapDocument<Group>(item.data(), item.id)).sort((a, b) => a.name.localeCompare(b.name, 'ru')));
-  }, error);
+  if (!teacherId) {
+    const groupsQuery = query(collection(db, 'groups'), where('schoolId', '==', schoolId));
+    return onSnapshot(groupsQuery, snapshot => next(snapshot.docs.map(item => mapDocument<Group>(item.data(), item.id)).sort((a, b) => a.name.localeCompare(b.name, 'ru'))), error);
+  }
+  const primary = new Map<string, Group>();
+  const substitute = new Map<string, Group>();
+  const emit = () => next(Array.from(new Map([...primary, ...substitute]).values()).sort((a, b) => a.name.localeCompare(b.name, 'ru')));
+  const offPrimary = onSnapshot(query(collection(db, 'groups'), where('schoolId', '==', schoolId), where('teacherId', '==', teacherId)), snapshot => { primary.clear(); snapshot.docs.forEach(item => primary.set(item.id, mapDocument<Group>(item.data(), item.id))); emit(); }, error);
+  const offSubstitute = onSnapshot(query(collection(db, 'groups'), where('schoolId', '==', schoolId), where('authorizedTeacherIds', 'array-contains', teacherId)), snapshot => { substitute.clear(); snapshot.docs.forEach(item => substitute.set(item.id, mapDocument<Group>(item.data(), item.id))); emit(); }, error);
+  return () => { offPrimary(); offSubstitute(); };
 }
 
 export function subscribeToLessons(schoolId: string, next: (items: Lesson[]) => void, error: ErrorHandler, teacherId?: string): Unsubscribe {

@@ -18,6 +18,7 @@ export interface Group {
   id: string;
   schoolId: string;
   teacherId?: string;
+  authorizedTeacherIds?: string[];
   name: string;
   kind?: GroupKind;
   color: string;
@@ -138,6 +139,8 @@ export interface Lesson {
   schoolId: string;
   groupId: string;
   teacherId?: string;
+  substituteForTeacherId?: string;
+  substitutionDate?: string;
   date: string;
   startTime: string;
   endTime: string;
