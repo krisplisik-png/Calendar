@@ -112,6 +112,7 @@ export interface ParentLessonView {
   lesson?: string;
   topic?: string;
   homework?: string;
+  room?: '1' | '2';
   status: 'scheduled' | 'cancelled' | 'completed';
 }
 
@@ -148,6 +149,7 @@ export interface Lesson {
   topic?: string;
   homework?: string;
   notes?: string;
+  room?: '' | '1' | '2';
   billingType?: 'subscription' | 'single';
   recurrenceWeekdays?: number[];
   recurrenceUntil?: string;

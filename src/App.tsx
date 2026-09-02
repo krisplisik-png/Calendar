@@ -64,14 +64,14 @@ export function App() {
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {
     const group = groupMap.get(item.groupId);
-    const text = `${group?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''}`.toLocaleLowerCase('ru');
+    const text = `${group?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''} ${item.room ? `кабинет ${item.room}` : ''}`.toLocaleLowerCase('ru');
     return (!selectedGroups.size || selectedGroups.has(item.groupId)) && text.includes(search.toLocaleLowerCase('ru'));
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
     return {
       id: recurring ? `${item.id}__${occurrenceDate}` : item.id,
-      title: `${group?.name ?? 'Без группы'}${item.topic ? ` · ${item.topic}` : ''}`,
+      title: `${group?.name ?? 'Без группы'}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
       start: `${occurrenceDate}T${item.startTime}`,
       end: `${occurrenceDate}T${item.endTime}`,
       backgroundColor: group?.color ?? '#a98be8', borderColor: group?.color ?? '#a98be8',

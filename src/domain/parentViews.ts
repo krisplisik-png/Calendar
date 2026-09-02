@@ -43,6 +43,7 @@ export function buildParentLessons(
         ...(item.lesson ? { lesson: item.lesson } : {}),
         ...(item.topic ? { topic: item.topic } : {}),
         ...(item.homework ? { homework: item.homework } : {}),
+        ...(item.room ? { room: item.room } : {}),
       };
       result[month].push(publicLesson);
     }
