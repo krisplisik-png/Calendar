@@ -115,6 +115,7 @@ export interface ParentLessonView {
   homework?: string;
   room?: '1' | '2';
   status: 'scheduled' | 'cancelled' | 'completed';
+  commentKeyByStudentId?: Record<string, string>;
 }
 
 export interface ParentView {
@@ -159,6 +160,7 @@ export interface Lesson {
   excludedDates?: string[];
   studentRoster?: StudentRosterItem[];
   studentStatusByDate?: Record<string, Record<string, StudentLessonStatus>>;
+  parentCommentByDate?: Record<string, Record<string, string>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

@@ -12,7 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
+import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, savePublicLessonComment, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
@@ -120,13 +120,18 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const { students, ...lessonFields } = input;
+    const { students, parentComment, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
     const studentRoster = students.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkDone }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
+    const commentsForDate = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
+    if (parentComment.trim()) commentsForDate.__general = parentComment.trim();
+    const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
+    const publishComments = (lessonId: string) => Promise.all(Object.entries(commentsForDate).map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment)));
     if (teacherMode && editingLesson) {
-      await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate });
+      await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, parentCommentByDate });
+      await publishComments(editingLesson.id);
       return;
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
@@ -136,13 +141,16 @@ export function App() {
       ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
       studentRoster,
       studentStatusByDate,
+      parentCommentByDate,
     };
     if (editingLesson) {
       await updateLesson(editingLesson.id, payload);
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...payload }, selectedGroup);
+      await publishComments(editingLesson.id);
     } else {
       const created = await createLesson(profile.schoolId, payload);
       await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
+      await publishComments(created.id);
     }
     await syncParents();
   }
@@ -172,9 +180,11 @@ export function App() {
               homework: source.homework ?? '', notes: source.notes ?? '', room: source.room ?? '', minAge: source.minAge, maxAge: source.maxAge,
               billingType: source.billingType ?? 'subscription', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], studentRoster: source.studentRoster ?? [],
               studentStatusByDate: statusForDate ? { [date]: statusForDate } : {},
+              parentCommentByDate: source.parentCommentByDate?.[date] ? { [date]: source.parentCommentByDate[date] } : {},
             }).filter(([, value]) => value !== undefined)) as unknown as Omit<Lesson, 'id' | 'schoolId' | 'createdAt' | 'updatedAt'>;
             const created = await createLesson(profile.schoolId, cloneInput);
             await publishPublicLesson(created.id, profile.schoolId, cloneInput, group);
+            await Promise.all(Object.entries(source.parentCommentByDate?.[date] ?? {}).map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, created.id, date, commentKey, comment)));
             assignedCount += 1;
           }
           const excludedDates = Array.from(new Set([...(source.excludedDates ?? []), ...dates])).sort();

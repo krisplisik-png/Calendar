@@ -21,7 +21,8 @@ export function buildParentLessons(
   const result = Object.fromEntries(months.map(month => [month, [] as ParentLessonView[]]));
 
   for (const item of lessons) {
-    const linked = allowedStudents.filter(student => student.groupIds.includes(item.groupId)).map(student => student.id);
+    const linkedStudents = allowedStudents.filter(student => student.groupIds.includes(item.groupId));
+    const linked = linkedStudents.map(student => student.id);
     if (!linked.length) continue;
     const group = groupMap.get(item.groupId);
     for (const occurrence of expandLessonOccurrences(item)) {
@@ -44,6 +45,10 @@ export function buildParentLessons(
         ...(item.topic ? { topic: item.topic } : {}),
         ...(item.homework ? { homework: item.homework } : {}),
         ...(item.room ? { room: item.room } : {}),
+        commentKeyByStudentId: Object.fromEntries(linkedStudents.map(student => {
+          const rosterStudent = item.studentRoster?.find(candidate => candidate.fullName.trim().toLocaleLowerCase('ru') === student.fullName.trim().toLocaleLowerCase('ru'));
+          return [student.id, rosterStudent?.id ?? '__general'];
+        })),
       };
       result[month].push(publicLesson);
     }

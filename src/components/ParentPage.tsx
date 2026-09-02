@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { getParentMonth, getParentView } from '../data/firestore';
+import { getParentMonth, getParentView, getPublicLessonComment } from '../data/firestore';
 import type { ParentLessonView, ParentMonthView, ParentView } from '../types';
 
 export function ParentPage({ token }: { token: string }) {
@@ -10,10 +10,13 @@ export function ParentPage({ token }: { token: string }) {
   const [month, setMonth] = useState(DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM'));
   const [studentId, setStudentId] = useState('');
   const [selectedLesson, setSelectedLesson] = useState<ParentLessonView | null>(null);
+  const [parentComment, setParentComment] = useState('');
+  const [commentLoading, setCommentLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => { getParentView(token).then(data => { setView(data); if (data?.students[0]) setStudentId(data.students[0].id); }).catch(() => setError('Не удалось загрузить расписание.')); }, [token]);
   useEffect(() => { if (!view?.active) return; setMonthData(undefined); getParentMonth(token, month).then(setMonthData).catch(() => setError('Не удалось загрузить выбранный месяц.')); }, [token, month, view]);
+  useEffect(() => { if (!selectedLesson) { setParentComment(''); return; } const commentKey = selectedLesson.commentKeyByStudentId?.[studentId] ?? '__general'; setCommentLoading(true); getPublicLessonComment(selectedLesson.lessonId, selectedLesson.occurrenceDate, commentKey).then(setParentComment).catch(() => setParentComment('')).finally(() => setCommentLoading(false)); }, [selectedLesson, studentId]);
   const lessons = useMemo(() => (monthData?.lessons ?? []).filter(item => !studentId || item.studentIds.includes(studentId)), [monthData, studentId]);
   const lessonsByDate = useMemo(() => new Map(Array.from(new Set(lessons.map(item => item.date))).map(date => [date, lessons.filter(item => item.date === date)])), [lessons]);
   const cursor = DateTime.fromFormat(month, 'yyyy-MM', { zone: 'Asia/Yekaterinburg' });
@@ -34,6 +37,6 @@ export function ParentPage({ token }: { token: string }) {
       })}</div>
       {monthData === undefined && <div className="parent-loading">Загружаем месяц…</div>}
     </section>
-    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}{selectedLesson.homework && <div><dt>Домашнее задание</dt><dd>{selectedLesson.homework}</dd></div>}</dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
+    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}{selectedLesson.homework && <div><dt>Домашнее задание</dt><dd>{selectedLesson.homework}</dd></div>}<div className="parent-comment"><dt>Комментарий учителя</dt><dd>{commentLoading ? 'Загружаем…' : parentComment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
   </main>;
 }

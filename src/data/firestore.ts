@@ -89,6 +89,16 @@ export async function removePublicLesson(id: string) {
   return deleteDoc(doc(db, 'publicLessons', id));
 }
 
+export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string) {
+  const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
+  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), updatedAt: serverTimestamp() });
+}
+
+export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
+  const snapshot = await getDoc(doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`));
+  return snapshot.exists() ? String(snapshot.data().comment ?? '') : '';
+}
+
 export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {
   const paymentsQuery = query(collection(db, 'payments'), where('schoolId', '==', schoolId), where('month', '==', month));
   return onSnapshot(paymentsQuery, snapshot => next(snapshot.docs.map(item => mapDocument<Payment>(item.data(), item.id))), error);

@@ -22,7 +22,7 @@ service cloud.firestore {
     match /lessons/{lessonId} {
       allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
-      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'updatedAt'])));
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'parentCommentByDate', 'updatedAt'])));
       allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
@@ -52,6 +52,13 @@ service cloud.firestore {
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
       allow delete: if manager();
+    }
+
+    match /publicLessonComments/{commentId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if signedIn() && sameSchool(request.resource.data.schoolId) && (manager() || assignedTeacher(get(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId)).data));
+      allow delete: if signedIn() && sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(get(/databases/$(database)/documents/lessons/$(resource.data.lessonId)).data));
     }
 
     match /parentViews/{token} {
