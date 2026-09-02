@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, CreditCard, GraduationCap, Link2, LogOut, Plus, Trash2, Users } from 'lucide-react';
+import { CalendarDays, CreditCard, GraduationCap, Link2, LogOut, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import type { Group, UserProfile } from '../types';
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   selected: Set<string>;
   onToggle: (id: string) => void;
   onAddGroup: () => void;
+  onEditGroup: (group: Group) => void;
   onDeleteGroup: (group: Group) => Promise<void>;
   activeView: 'calendar' | 'payments';
   onNavigate: (view: 'calendar' | 'payments') => void;
@@ -17,7 +18,7 @@ interface Props {
   onLogout: () => void;
 }
 
-export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onDeleteGroup, activeView, onNavigate, canManage, onManageTeachers, onManageParents, onLogout }: Props) {
+export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEditGroup, onDeleteGroup, activeView, onNavigate, canManage, onManageTeachers, onManageParents, onLogout }: Props) {
   const displayName = profile.name?.trim() || profile.email || 'Администратор';
   const [pendingDelete, setPendingDelete] = useState<Group | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -42,7 +43,8 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onDel
         {groups.map(group => <div className="group-filter" key={group.id}>
           <input type="checkbox" checked={selected.size === 0 || selected.has(group.id)} onChange={() => onToggle(group.id)} />
           <span className="color-dot" style={{ background: group.color }} />
-          <button className="participant-name" onClick={() => canManage && setPendingDelete(group)} title={canManage ? 'Удалить запись' : undefined}><span>{group.name}<small className="kind-label">{(group.kind ?? 'group') === 'group' ? 'группа' : group.kind === 'pair' ? 'пара' : 'индивидуально'}</small></span>{canManage && <Trash2 size={14} />}</button>
+          <button className="participant-name" onClick={() => canManage && onEditGroup(group)} title={canManage ? 'Редактировать' : undefined}><span>{group.name}<small className="kind-label">{(group.kind ?? 'group') === 'group' ? 'группа' : group.kind === 'pair' ? 'пара' : 'индивидуально'}</small></span></button>
+          {canManage && <div className="participant-actions"><button onClick={() => onEditGroup(group)} aria-label={`Редактировать ${group.name}`} title="Редактировать"><Pencil size={13} /></button><button onClick={() => setPendingDelete(group)} aria-label={`Удалить ${group.name}`} title="Удалить"><Trash2 size={14} /></button></div>}
         </div>)}
         {!groups.length && <p className="sidebar-empty">Добавьте ученика или группу</p>}
       </div>
