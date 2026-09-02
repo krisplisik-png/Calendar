@@ -20,8 +20,9 @@ export function ParentAccessDialog({ students, groups, access, syncing, onCreate
   const studentMap = useMemo(() => new Map(students.map(student => [student.id, student])), [students]);
   const filteredAccess = useMemo(() => {
     const query = linkSearch.trim().toLocaleLowerCase('ru');
-    if (!query) return access;
-    return access.filter(item => item.studentIds.some(id => studentMap.get(id)?.fullName.toLocaleLowerCase('ru').includes(query)));
+    const activeAccess = access.filter(item => item.active);
+    if (!query) return activeAccess;
+    return activeAccess.filter(item => item.studentIds.some(id => studentMap.get(id)?.fullName.toLocaleLowerCase('ru').includes(query)));
   }, [access, linkSearch, studentMap]);
   const urlFor = (token: string) => `${window.location.origin}${window.location.pathname}?parent=${encodeURIComponent(token)}`;
   async function addStudent(event: FormEvent) { event.preventDefault(); if (!name.trim() || !groupIds.length) return; setBusy(true); try { await onCreateStudent(name, groupIds); setName(''); setGroupIds([]); } finally { setBusy(false); } }

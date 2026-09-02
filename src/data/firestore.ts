@@ -166,20 +166,57 @@ export async function createParentLink(schoolId: string, studentIds: string[]) {
 
 export async function syncParentLinksFromSchedule(schoolId: string) {
   const data = await schoolData(schoolId);
-  const students = [...data.students];
-  const byName = new Map(students.map(student => [student.fullName.trim().toLocaleLowerCase('ru'), student]));
+  const normalizeName = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  const students = [...data.students].sort((a, b) => Number(b.active !== false) - Number(a.active !== false));
+  const byName = new Map<string, Student>();
+  const duplicateStudentIds = new Map<string, string>();
+  for (const student of students) {
+    const key = normalizeName(student.fullName);
+    const canonical = byName.get(key);
+    if (!canonical) {
+      byName.set(key, student);
+      continue;
+    }
+    duplicateStudentIds.set(student.id, canonical.id);
+    const mergedGroupIds = Array.from(new Set([...canonical.groupIds, ...student.groupIds]));
+    if (mergedGroupIds.length !== canonical.groupIds.length) {
+      canonical.groupIds = mergedGroupIds;
+      await updateDoc(doc(db, 'students', canonical.id), { groupIds: mergedGroupIds, updatedAt: serverTimestamp() });
+    }
+    await updateDoc(doc(db, 'students', student.id), { active: false, updatedAt: serverTimestamp() });
+  }
+
+  const normalizedAccesses: ParentAccess[] = [];
+  for (const access of data.accesses) {
+    const studentIds = Array.from(new Set(access.studentIds.map(id => duplicateStudentIds.get(id) ?? id)));
+    if (studentIds.some((id, index) => id !== access.studentIds[index]) || studentIds.length !== access.studentIds.length) {
+      await updateDoc(doc(db, 'parentAccess', access.id), { studentIds, updatedAt: serverTimestamp() });
+    }
+    normalizedAccesses.push({ ...access, studentIds });
+  }
+  const personalLinkByStudent = new Map<string, ParentAccess>();
+  for (const access of normalizedAccesses.filter(item => item.active && item.studentIds.length === 1)) {
+    const studentId = access.studentIds[0];
+    if (!personalLinkByStudent.has(studentId)) {
+      personalLinkByStudent.set(studentId, access);
+      continue;
+    }
+    await updateDoc(doc(db, 'parentAccess', access.id), { active: false, updatedAt: serverTimestamp() });
+    await setDoc(doc(db, 'parentViews', access.token), { schoolId, active: false, updatedAt: serverTimestamp() }, { merge: true });
+    access.active = false;
+  }
   let studentsCreated = 0;
   let linksCreated = 0;
 
   for (const group of data.groups) {
     const names = new Set<string>();
-    const groupStudentIds = new Set(group.studentIds ?? []);
+    const groupStudentIds = new Set((group.studentIds ?? []).map(id => duplicateStudentIds.get(id) ?? id));
     if ((group.kind ?? 'group') === 'individual' && group.name.trim()) names.add(group.name.trim());
     data.lessons.filter(lesson => lesson.groupId === group.id).forEach(lesson => lesson.studentRoster?.forEach(student => {
       if (student.fullName.trim()) names.add(student.fullName.trim());
     }));
     for (const fullName of names) {
-      const key = fullName.toLocaleLowerCase('ru');
+      const key = normalizeName(fullName);
       let student = byName.get(key);
       if (!student) {
         const reference = await addDoc(collection(db, 'students'), { schoolId, fullName, groupIds: [group.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
@@ -194,11 +231,12 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
       }
       groupStudentIds.add(student.id);
     }
-    if (groupStudentIds.size !== (group.studentIds ?? []).length) await updateGroup(group.id, { studentIds: Array.from(groupStudentIds) });
+    const normalizedGroupStudentIds = Array.from(groupStudentIds);
+    if (normalizedGroupStudentIds.length !== (group.studentIds ?? []).length || normalizedGroupStudentIds.some(id => !(group.studentIds ?? []).includes(id))) await updateGroup(group.id, { studentIds: normalizedGroupStudentIds });
   }
 
-  for (const student of students) {
-    if (data.accesses.some(access => access.studentIds.includes(student.id))) continue;
+  for (const student of students.filter(item => item.active !== false && !duplicateStudentIds.has(item.id))) {
+    if (normalizedAccesses.some(access => access.active && access.studentIds.includes(student.id))) continue;
     await addDoc(collection(db, 'parentAccess'), { schoolId, token: generateParentToken(), studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     linksCreated += 1;
   }
