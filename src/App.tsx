@@ -20,7 +20,7 @@ import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
-import { createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents } from './data/firestore';
+import { createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -46,6 +46,7 @@ export function App() {
   const [students, setStudents] = useState<Student[]>([]);
   const [parentAccess, setParentAccess] = useState<ParentAccess[]>([]);
   const [parentDialog, setParentDialog] = useState(false);
+  const [parentSyncing, setParentSyncing] = useState(false);
   const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
 
   useEffect(() => { const timer = window.setInterval(() => setNow(DateTime.now()), 30_000); return () => clearInterval(timer); }, []);
@@ -98,7 +99,8 @@ export function App() {
     return next;
   });
   async function refreshParentViews() { if (canManage) await rebuildParentViewsForSchool(profile.schoolId); }
-  async function saveGroup(input: GroupInput) { if (editingGroup) await updateGroup(editingGroup.id, input); else await createGroup(profile.schoolId, input); await refreshParentViews(); }
+  async function syncParents() { setParentSyncing(true); try { await syncParentLinksFromSchedule(profile.schoolId); } finally { setParentSyncing(false); } }
+  async function saveGroup(input: GroupInput) { if (editingGroup) await updateGroup(editingGroup.id, input); else await createGroup(profile.schoolId, input); await syncParents(); }
   async function deleteGroup(group: Group) {
     try {
       await removeGroup(group.id);
@@ -140,7 +142,7 @@ export function App() {
       const created = await createLesson(profile.schoolId, payload);
       await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
     }
-    await refreshParentViews();
+    await syncParents();
   }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
@@ -214,7 +216,7 @@ export function App() {
   }
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => setParentDialog(true)} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => { setParentDialog(true); void syncParents().catch(error => setDataError(humanizeFirebaseError(error))); }} onLogout={logout} />
     <main className="workspace">
       {activeView === 'payments' ? <PaymentsPage profile={profile} groups={groups} lessons={lessons} onError={setDataError} /> : <>
       <header className="topbar">
@@ -246,7 +248,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await refreshParentViews(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={refreshParentViews} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} syncing={parentSyncing} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await syncParents(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
 }

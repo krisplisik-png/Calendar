@@ -154,6 +154,48 @@ export async function createParentLink(schoolId: string, studentIds: string[]) {
   return token;
 }
 
+export async function syncParentLinksFromSchedule(schoolId: string) {
+  const data = await schoolData(schoolId);
+  const students = [...data.students];
+  const byName = new Map(students.map(student => [student.fullName.trim().toLocaleLowerCase('ru'), student]));
+  let studentsCreated = 0;
+  let linksCreated = 0;
+
+  for (const group of data.groups) {
+    const names = new Set<string>();
+    const groupStudentIds = new Set(group.studentIds ?? []);
+    if ((group.kind ?? 'group') === 'individual' && group.name.trim()) names.add(group.name.trim());
+    data.lessons.filter(lesson => lesson.groupId === group.id).forEach(lesson => lesson.studentRoster?.forEach(student => {
+      if (student.fullName.trim()) names.add(student.fullName.trim());
+    }));
+    for (const fullName of names) {
+      const key = fullName.toLocaleLowerCase('ru');
+      let student = byName.get(key);
+      if (!student) {
+        const reference = await addDoc(collection(db, 'students'), { schoolId, fullName, groupIds: [group.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        student = { id: reference.id, schoolId, fullName, groupIds: [group.id], active: true } as Student;
+        students.push(student); byName.set(key, student); studentsCreated += 1;
+      } else if (!student.groupIds.includes(group.id)) {
+        student = { ...student, groupIds: [...student.groupIds, group.id] };
+        byName.set(key, student);
+        const index = students.findIndex(item => item.id === student!.id);
+        students[index] = student;
+        await updateDoc(doc(db, 'students', student.id), { groupIds: student.groupIds, updatedAt: serverTimestamp() });
+      }
+      groupStudentIds.add(student.id);
+    }
+    if (groupStudentIds.size !== (group.studentIds ?? []).length) await updateGroup(group.id, { studentIds: Array.from(groupStudentIds) });
+  }
+
+  for (const student of students) {
+    if (data.accesses.some(access => access.studentIds.includes(student.id))) continue;
+    await addDoc(collection(db, 'parentAccess'), { schoolId, token: generateParentToken(), studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    linksCreated += 1;
+  }
+  await rebuildParentViewsForSchool(schoolId);
+  return { studentsCreated, linksCreated };
+}
+
 export async function regenerateParentLink(access: ParentAccess) {
   const token = generateParentToken();
   const batch = writeBatch(db);
