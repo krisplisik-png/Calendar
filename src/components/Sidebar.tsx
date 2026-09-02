@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, CreditCard, GraduationCap, Link2, LogOut, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { CalendarDays, CreditCard, FileSpreadsheet, GraduationCap, Link2, LogOut, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import type { Group, UserProfile } from '../types';
 
 interface Props {
@@ -15,10 +15,11 @@ interface Props {
   canManage: boolean;
   onManageTeachers: () => void;
   onManageParents: () => void;
+  onExportGroups: () => void;
   onLogout: () => void;
 }
 
-export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEditGroup, onDeleteGroup, activeView, onNavigate, canManage, onManageTeachers, onManageParents, onLogout }: Props) {
+export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEditGroup, onDeleteGroup, activeView, onNavigate, canManage, onManageTeachers, onManageParents, onExportGroups, onLogout }: Props) {
   const displayName = profile.name?.trim() || profile.email || 'Администратор';
   const [pendingDelete, setPendingDelete] = useState<Group | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -36,7 +37,7 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEdi
   }
   return <aside className="sidebar">
     <div className="brand"><CalendarDays size={24} /><span>Мой календарь</span></div>
-    <nav className="sidebar-nav"><button className={activeView === 'calendar' ? 'nav-active' : ''} onClick={() => onNavigate('calendar')}><CalendarDays size={18} />Расписание</button>{canManage && <button className={activeView === 'payments' ? 'nav-active' : ''} onClick={() => onNavigate('payments')}><CreditCard size={18} />Оплаты</button>}{canManage && <button onClick={onManageTeachers}><GraduationCap size={18} />Учителя</button>}{canManage && <button onClick={onManageParents}><Link2 size={18} />Родительские ссылки</button>}</nav>
+    <nav className="sidebar-nav"><button className={activeView === 'calendar' ? 'nav-active' : ''} onClick={() => onNavigate('calendar')}><CalendarDays size={18} />Расписание</button>{canManage && <button className={activeView === 'payments' ? 'nav-active' : ''} onClick={() => onNavigate('payments')}><CreditCard size={18} />Оплаты</button>}{canManage && <button onClick={onManageTeachers}><GraduationCap size={18} />Учителя</button>}{canManage && <button onClick={onManageParents}><Link2 size={18} />Родительские ссылки</button>}{canManage && <button onClick={onExportGroups}><FileSpreadsheet size={18} />Экспорт в Excel</button>}</nav>
     <div className="sidebar-section">
       <div className="section-title"><span><Users size={16} />Ученики и группы</span>{canManage && <button onClick={onAddGroup} aria-label="Добавить ученика или группу"><Plus size={17} /></button>}</div>
       <div className="group-list">
