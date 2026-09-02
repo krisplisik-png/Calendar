@@ -20,6 +20,15 @@ describe('payment month calculations', () => {
     expect(calculateAmountDue(8, 900, 1, 1200)).toBe(8400);
   });
 
+  it('automatically counts every Monday and Thursday plus a single lesson', () => {
+    const lessons: Lesson[] = [
+      { id: 'series', schoolId: 'peakway', groupId: 'g1', date: '2026-08-03', startTime: '17:00', endTime: '18:00', recurrenceWeekdays: [1, 4], recurrenceUntil: '2026-08-31', billingType: 'subscription', createdAt: stamp, updatedAt: stamp },
+      { id: 'single', schoolId: 'peakway', groupId: 'g1', date: '2026-08-15', startTime: '12:00', endTime: '13:00', billingType: 'single', createdAt: stamp, updatedAt: stamp },
+    ];
+    expect(countParticipantLessons(lessons, 'g1', '2026-08', '2026-08-31')).toEqual({ scheduled: 10, completed: 10, subscription: 9, single: 1 });
+    expect(calculateAmountDue(9, 900, 1, 1200)).toBe(9300);
+  });
+
   it('calculates payment status', () => {
     expect(getPaymentStatus(10000, 0)).toBe('unpaid');
     expect(getPaymentStatus(10000, 4000)).toBe('partial');
