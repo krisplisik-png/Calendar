@@ -126,9 +126,18 @@ export function App() {
     const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkDone }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
     const commentsForDate = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
-    if (parentComment.trim()) commentsForDate.__general = parentComment.trim();
+    commentsForDate.__general = parentComment.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
-    const publishComments = (lessonId: string) => Promise.all(Object.entries(commentsForDate).map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment)));
+    const previousComments = editingLesson?.parentCommentByDate?.[statusDate] ?? {};
+    const changedComments = Object.entries(commentsForDate).filter(([commentKey, comment]) => comment || previousComments[commentKey]);
+    const publishComments = async (lessonId: string) => {
+      if (!changedComments.length) return;
+      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment)));
+      await Promise.race([
+        writes,
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
+      ]);
+    };
     if (teacherMode && editingLesson) {
       await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, parentCommentByDate });
       await publishComments(editingLesson.id);
