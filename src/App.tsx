@@ -73,9 +73,9 @@ export function App() {
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
-    const isGroupLesson = (group?.kind ?? 'group') === 'group';
+    const tracksAttendance = ['group', 'individual'].includes(group?.kind ?? 'group');
     const occurrenceHasEnded = DateTime.fromISO(`${occurrenceDate}T${item.endTime}`, { zone: 'Asia/Yekaterinburg' }) <= now.setZone('Asia/Yekaterinburg');
-    const attendanceState = isGroupLesson && occurrenceHasEnded
+    const attendanceState = tracksAttendance && occurrenceHasEnded
       ? (item.attendanceCompletedDates?.includes(occurrenceDate) ? 'attendance-complete' : 'attendance-missing')
       : '';
     return {

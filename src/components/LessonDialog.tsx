@@ -41,11 +41,15 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     setSelectedKind(initialKind);
     const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
+    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false, parentComment: lesson?.parentCommentByDate?.[statusDate]?.[student.id] ?? '' }));
+    const formStudents = rosterStudents.length || initialKind !== 'individual' || !existingGroup
+      ? rosterStudents
+      : [{ id: `individual_${existingGroup.id}`, fullName: existingGroup.name, attended: false, homeworkDone: false, parentComment: '' }];
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
       course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '',
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
-      students: (lesson.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false, parentComment: lesson.parentCommentByDate?.[statusDate]?.[student.id] ?? '' })),
+      students: formStudents,
       billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),
     } : { ...empty(), groupId: '', date: initialDate ?? empty().date });
     setRepeats(Boolean(lesson?.recurrenceWeekdays?.length && lesson.recurrenceUntil));
@@ -59,6 +63,16 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
   function selectKind(kind: GroupKind) {
     setSelectedKind(kind);
     setValue(current => ({ ...current, groupId: '', students: kind === 'group' ? current.students : [] }));
+  }
+  function selectParticipant(groupId: string) {
+    const participant = groups.find(group => group.id === groupId);
+    setValue(current => ({
+      ...current,
+      groupId,
+      students: selectedKind === 'individual' && participant
+        ? [{ id: `individual_${participant.id}`, fullName: participant.name, attended: false, homeworkDone: false, parentComment: '' }]
+        : selectedKind === 'group' ? current.students : [],
+    }));
   }
   function addStudent() {
     setValue(current => ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false, parentComment: '' }] }));
@@ -106,7 +120,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
           <span>{option.label}</span>
         </label>)}
       </fieldset>
-      <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => setValue({ ...value, groupId: e.target.value })} required disabled={teacherMode}><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
+      <label>{selectedKind === 'individual' ? 'Ученик' : selectedKind === 'pair' ? 'Пара' : 'Группа'}<select value={value.groupId} onChange={e => selectParticipant(e.target.value)} required disabled={teacherMode}><option value="">{availableParticipants.length ? 'Выберите из списка' : `Сначала добавьте: ${selectedKind === 'individual' ? 'индивидуального ученика' : selectedKind === 'pair' ? 'пару' : 'группу'}`}</option>{availableParticipants.map(participant => <option value={participant.id} key={participant.id}>{participant.name}</option>)}</select></label>
       {selectedKind === 'group' && <div className="form-grid"><label>Возраст от<input type="number" min="3" max="18" value={value.minAge ?? ''} onChange={e => setValue({ ...value, minAge: e.target.value ? Number(e.target.value) : undefined })} required disabled={teacherMode} placeholder="Например, 7" /></label><label>Возраст до<input type="number" min="3" max="18" value={value.maxAge ?? ''} onChange={e => setValue({ ...value, maxAge: e.target.value ? Number(e.target.value) : undefined })} required disabled={teacherMode} placeholder="Например, 9" /></label></div>}
       <div className="form-grid three"><label>Дата<input type="date" value={value.date} onChange={e => setValue({ ...value, date: e.target.value })} required disabled={teacherMode} /></label><label>Начало<input type="time" value={value.startTime} onChange={e => setValue({ ...value, startTime: e.target.value })} required disabled={teacherMode} /></label><label>Конец<input type="time" value={value.endTime} onChange={e => setValue({ ...value, endTime: e.target.value })} required disabled={teacherMode} /></label></div>
       <label>Кабинет<select value={value.room} onChange={e => setValue({ ...value, room: e.target.value as LessonInput['room'] })} disabled={teacherMode}><option value="">Не указан</option><option value="1">Кабинет 1</option><option value="2">Кабинет 2</option></select></label>
@@ -128,6 +142,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
           </div>)}
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
       </section>}
+      {selectedKind === 'individual' && value.students[0] && <section className="student-journal individual-attendance"><div className="student-journal-header"><div><span className="field-caption">Посещение</span><small>Отметка на {occurrenceDate ?? value.date}</small></div></div><div className="individual-attendance-row"><strong>{value.students[0].fullName}</strong><div className="status-choice" aria-label="Посещение"><button type="button" className={value.students[0].attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: true })}>Был</button><button type="button" className={!value.students[0].attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: false })}>Не был</button></div></div></section>}
       <section className="recurrence-section">
         <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} disabled={teacherMode} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">
