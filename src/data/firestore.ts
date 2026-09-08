@@ -53,14 +53,18 @@ export async function removeGroup(id: string) {
   return deleteDoc(doc(db, 'groups', id));
 }
 
+function withoutUndefined<T extends Record<string, unknown>>(input: T): T {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as T;
+}
+
 export async function createLesson(schoolId: string, input: Omit<Lesson, 'id' | 'schoolId' | 'createdAt' | 'updatedAt'>) {
   return addDoc(collection(db, 'lessons'), {
-    ...input, schoolId, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    ...withoutUndefined(input), schoolId, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
 }
 
 export async function updateLesson(id: string, input: Partial<Omit<Lesson, 'id' | 'schoolId' | 'createdAt'>>) {
-  return updateDoc(doc(db, 'lessons', id), { ...input, updatedAt: serverTimestamp() });
+  return updateDoc(doc(db, 'lessons', id), { ...withoutUndefined(input), updatedAt: serverTimestamp() });
 }
 
 export async function setLessonTeacher(id: string, teacherId: string) {
