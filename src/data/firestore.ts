@@ -3,6 +3,7 @@ import {
   updateDoc, where, writeBatch, type DocumentData, type FirestoreError,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { DateTime } from 'luxon';
 import type { Group, Lesson, ParentAccess, ParentMonthView, ParentView, Payment, SchoolUser, Student } from '../types';
 import { buildParentLessons, generateParentToken, parentMonthKeys } from '../domain/parentViews';
 
@@ -188,8 +189,7 @@ async function schoolData(schoolId: string) {
   };
 }
 
-async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
-  const months = parentMonthKeys();
+async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[], months = parentMonthKeys()) {
   const activeAccesses = accesses.filter(item => item.active);
   const parallelLimit = 5;
   for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
@@ -216,7 +216,9 @@ export async function rebuildParentViewsForSchool(schoolId: string) {
     seenStudents.add(key);
     return true;
   });
-  await writeParentViews(schoolId, data, uniqueAccesses);
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').startOf('month');
+  const nearbyMonths = [-1, 0, 1].map(offset => currentMonth.plus({ months: offset }).toFormat('yyyy-MM'));
+  await writeParentViews(schoolId, data, uniqueAccesses, nearbyMonths);
 }
 
 export async function rebuildParentView(access: ParentAccess) {
@@ -288,7 +290,6 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
   }
   let studentsCreated = 0;
   let linksCreated = 0;
-  const createdAccesses: ParentAccess[] = [];
 
   for (const group of data.groups) {
     const names = new Set<string>();
@@ -322,12 +323,9 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
     const token = generateParentToken();
     const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     const createdAccess = { id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess;
-    createdAccesses.push(createdAccess);
     normalizedAccesses.push(createdAccess);
     linksCreated += 1;
   }
-  // Make newly created links usable before rebuilding every existing parent view.
-  if (createdAccesses.length) await writeParentViews(schoolId, { ...data, students }, createdAccesses);
   await rebuildParentViewsForSchool(schoolId);
   return { studentsCreated, linksCreated };
 }
