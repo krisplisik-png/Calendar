@@ -19,22 +19,23 @@ export function ParentPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true;
     setView(undefined); setError('');
-    const timeout = window.setTimeout(() => {
+    const load = async () => {
+      for (let attempt = 0; attempt < 8 && active; attempt += 1) {
+        try {
+          const data = await getParentView(token);
+          if (data?.active && data.students.length) {
+            if (!active) return;
+            setView(data); setStudentId(data.students[0].id); return;
+          }
+        } catch { /* The administrator may still be rebuilding this public view. */ }
+        await new Promise(resolve => window.setTimeout(resolve, 1500));
+      }
       if (!active) return;
-      active = false;
       setView(null);
-      setError('Firebase не ответил вовремя. Обновите страницу или попросите администратора открыть эту ссылку из календаря ещё раз.');
-    }, 20_000);
-    getParentView(token).then(data => {
-      if (!active) return;
-      active = false; window.clearTimeout(timeout); setView(data);
-      if (data?.students[0]) setStudentId(data.students[0].id);
-      else if (data) setError('В ссылке пока нет данных ребенка. Попросите администратора открыть её из раздела «Родительский доступ», чтобы восстановить расписание.');
-    }).catch(() => {
-      if (!active) return;
-      active = false; window.clearTimeout(timeout); setView(null); setError('Не удалось загрузить расписание. Попросите администратора подготовить ссылку ещё раз.');
-    });
-    return () => { active = false; window.clearTimeout(timeout); };
+      setError('Данные этой ссылки не созданы в Firebase. Откройте ссылку кнопкой из раздела «Родительский доступ» ещё раз.');
+    };
+    void load();
+    return () => { active = false; };
   }, [token]);
   useEffect(() => { if (!view?.active) return; setMonthData(undefined); getParentMonth(token, month).then(setMonthData).catch(() => setError('Не удалось загрузить выбранный месяц.')); }, [token, month, view]);
   const lessons = useMemo(() => (monthData?.lessons ?? []).filter(item => !studentId || item.studentIds.includes(studentId)), [monthData, studentId]);
