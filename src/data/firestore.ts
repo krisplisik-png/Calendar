@@ -147,18 +147,18 @@ async function schoolData(schoolId: string) {
 async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
   const months = parentMonthKeys();
   const activeAccesses = accesses.filter(item => item.active);
-  // Each parent uses one rules lookup; keep the batch below Firestore's
-  // 20 document-access-call limit for multi-document requests.
-  const accessesPerBatch = 15;
-  for (let offset = 0; offset < activeAccesses.length; offset += accessesPerBatch) {
-    const batch = writeBatch(db);
-    for (const access of activeAccesses.slice(offset, offset + accessesPerBatch)) {
+  const parallelLimit = 5;
+  for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
+    await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(async access => {
+      // Keep each parent in its own batch so Firestore Rules access limits
+      // cannot reject a large school-wide update.
+      const batch = writeBatch(db);
       const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
       const lessonsByMonth = buildParentLessons(access.studentIds, data.students, data.groups, data.lessons, data.teachers, months);
       batch.set(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
       months.forEach(month => batch.set(doc(db, 'parentViews', access.token, 'months', month), { month, lessons: lessonsByMonth[month], updatedAt: serverTimestamp() }));
-    }
-    await batch.commit();
+      await batch.commit();
+    }));
   }
 }
 
@@ -193,7 +193,7 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
       canonical.groupIds = mergedGroupIds;
       await updateDoc(doc(db, 'students', canonical.id), { groupIds: mergedGroupIds, updatedAt: serverTimestamp() });
     }
-    await updateDoc(doc(db, 'students', student.id), { active: false, updatedAt: serverTimestamp() });
+    if (student.active !== false) await updateDoc(doc(db, 'students', student.id), { active: false, updatedAt: serverTimestamp() });
   }
 
   const normalizedAccesses: ParentAccess[] = [];

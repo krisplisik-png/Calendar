@@ -113,7 +113,9 @@ export function App() {
     if (parentSyncPromise.current) return parentSyncPromise.current;
     setParentSyncing(true);
     setParentSyncError('');
-    const operation = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined).catch(error => {
+    const synchronization = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined);
+    const timeout = new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Обновление заняло слишком много времени. Проверьте интернет и нажмите «Обновить расписания» ещё раз.')), 60_000));
+    const operation = Promise.race([synchronization, timeout]).catch(error => {
       setParentSyncError(humanizeFirebaseError(error));
       throw error;
     }).finally(() => {
