@@ -175,7 +175,7 @@ export function App() {
       });
       for (const correction of corrections) {
         await updateScheduledStudentName(profile.schoolId, input.groupId, correction.rosterId, correction.previousName, correction.fullName);
-        await Promise.all(lessons.filter(item => item.groupId === input.groupId && item.id !== editingLesson.id).map(item => {
+        await Promise.all(lessons.filter(item => item.id !== editingLesson.id).map(item => {
           const roster = item.studentRoster ?? [];
           let changed = false;
           const updatedRoster = roster.map(rosterStudent => {

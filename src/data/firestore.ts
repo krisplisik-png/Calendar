@@ -150,13 +150,25 @@ export async function updateScheduledStudentName(schoolId: string, groupId: stri
   const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
   const cleanName = fullName.trim().replace(/\s+/g, ' ');
   const snapshot = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
-  const matches = snapshot.docs.filter(item => {
+  const directMatches = snapshot.docs.filter(item => {
     const student = item.data() as Student;
     return student.active !== false && (student.groupIds ?? []).includes(groupId)
       && (item.id === rosterId || normalize(student.fullName ?? '') === normalize(previousName));
   });
+  const relatedGroupIds = new Set(directMatches.flatMap(item => ((item.data() as Student).groupIds ?? [])));
+  const matches = snapshot.docs.filter(item => {
+    const student = item.data() as Student;
+    return student.active !== false && normalize(student.fullName ?? '') === normalize(previousName)
+      && (directMatches.some(match => match.id === item.id) || (student.groupIds ?? []).some(id => relatedGroupIds.has(id)));
+  });
   await Promise.all(matches.map(item => updateDoc(item.ref, { fullName: cleanName, updatedAt: serverTimestamp() })));
-  return matches.map(item => item.id);
+  const renamedIds = matches.map(item => item.id);
+  if (renamedIds.length) {
+    const refreshed = await schoolData(schoolId);
+    const affectedAccesses = refreshed.accesses.filter(access => access.active && access.studentIds.some(id => renamedIds.includes(id)));
+    if (affectedAccesses.length) await writeParentViews(schoolId, refreshed, affectedAccesses);
+  }
+  return renamedIds;
 }
 
 export function subscribeToParentAccess(schoolId: string, next: (items: ParentAccess[]) => void, error: ErrorHandler): Unsubscribe {
