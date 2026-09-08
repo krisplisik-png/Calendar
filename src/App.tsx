@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateStudentName } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -143,7 +143,6 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const schoolStudents = students;
     const { students: lessonStudents, parentComment, homeworkAssigned, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
@@ -175,9 +174,7 @@ export function App() {
           : [];
       });
       for (const correction of corrections) {
-        const student = schoolStudents.find(item => item.active !== false && item.groupIds.includes(input.groupId)
-          && (item.id === correction.rosterId || normalize(item.fullName) === normalize(correction.previousName)));
-        if (student) await updateStudentName(student.id, correction.fullName);
+        await updateScheduledStudentName(profile.schoolId, input.groupId, correction.rosterId, correction.previousName, correction.fullName);
         await Promise.all(lessons.filter(item => item.groupId === input.groupId && item.id !== editingLesson.id).map(item => {
           const roster = item.studentRoster ?? [];
           let changed = false;

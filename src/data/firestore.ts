@@ -146,11 +146,17 @@ export async function attachStudentToGroups(student: Student, groupIds: string[]
   }));
 }
 
-export async function updateStudentName(studentId: string, fullName: string) {
-  return updateDoc(doc(db, 'students', studentId), {
-    fullName: fullName.trim().replace(/\s+/g, ' '),
-    updatedAt: serverTimestamp(),
+export async function updateScheduledStudentName(schoolId: string, groupId: string, rosterId: string, previousName: string, fullName: string) {
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  const cleanName = fullName.trim().replace(/\s+/g, ' ');
+  const snapshot = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
+  const matches = snapshot.docs.filter(item => {
+    const student = item.data() as Student;
+    return student.active !== false && (student.groupIds ?? []).includes(groupId)
+      && (item.id === rosterId || normalize(student.fullName ?? '') === normalize(previousName));
   });
+  await Promise.all(matches.map(item => updateDoc(item.ref, { fullName: cleanName, updatedAt: serverTimestamp() })));
+  return matches.map(item => item.id);
 }
 
 export function subscribeToParentAccess(schoolId: string, next: (items: ParentAccess[]) => void, error: ErrorHandler): Unsubscribe {
@@ -231,17 +237,6 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
       await updateDoc(doc(db, 'parentAccess', access.id), { studentIds, updatedAt: serverTimestamp() });
     }
     normalizedAccesses.push({ ...access, studentIds });
-  }
-  const personalLinkByStudent = new Map<string, ParentAccess>();
-  for (const access of normalizedAccesses.filter(item => item.active && item.studentIds.length === 1)) {
-    const studentId = access.studentIds[0];
-    if (!personalLinkByStudent.has(studentId)) {
-      personalLinkByStudent.set(studentId, access);
-      continue;
-    }
-    await updateDoc(doc(db, 'parentAccess', access.id), { active: false, updatedAt: serverTimestamp() });
-    await setDoc(doc(db, 'parentViews', access.token), { schoolId, active: false, updatedAt: serverTimestamp() }, { merge: true });
-    access.active = false;
   }
   let studentsCreated = 0;
   let linksCreated = 0;

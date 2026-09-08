@@ -23,8 +23,12 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
   const filteredAccess = useMemo(() => {
     const query = linkSearch.trim().toLocaleLowerCase('ru');
     const activeAccess = access.filter(item => item.active);
-    if (!query) return activeAccess;
-    return activeAccess.filter(item => item.studentIds.some(id => studentMap.get(id)?.fullName.toLocaleLowerCase('ru').includes(query)));
+    const uniqueAccess = activeAccess.filter((item, index, items) => {
+      const key = [...item.studentIds].sort().join('|');
+      return items.findIndex(candidate => [...candidate.studentIds].sort().join('|') === key) === index;
+    });
+    if (!query) return uniqueAccess;
+    return uniqueAccess.filter(item => item.studentIds.some(id => studentMap.get(id)?.fullName.toLocaleLowerCase('ru').includes(query)));
   }, [access, linkSearch, studentMap]);
   const scheduleCandidates = useMemo(() => {
     const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
