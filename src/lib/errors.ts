@@ -10,5 +10,6 @@ export function humanizeFirebaseError(error: unknown): string {
     unavailable: 'Нет связи с Firebase. Проверьте интернет.',
     'firestore/unavailable': 'Нет связи с Firebase. Проверьте интернет.',
   };
-  return messages[code] ?? 'Не удалось выполнить операцию. Проверьте соединение и повторите попытку.';
+  const detail = error instanceof Error ? error.message : '';
+  return messages[code] ?? (detail ? `Не удалось выполнить операцию: ${detail}` : 'Не удалось выполнить операцию. Проверьте соединение и повторите попытку.');
 }
