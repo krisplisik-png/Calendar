@@ -148,7 +148,9 @@ export async function rebuildParentViewsForSchool(schoolId: string) {
   const data = await schoolData(schoolId);
   const months = parentMonthKeys();
   const activeAccesses = data.accesses.filter(item => item.active);
-  const accessesPerBatch = 35;
+  // Each parent uses one rules lookup; keep the batch below Firestore's
+  // 20 document-access-call limit for multi-document requests.
+  const accessesPerBatch = 15;
   for (let offset = 0; offset < activeAccesses.length; offset += accessesPerBatch) {
     const batch = writeBatch(db);
     for (const access of activeAccesses.slice(offset, offset + accessesPerBatch)) {
