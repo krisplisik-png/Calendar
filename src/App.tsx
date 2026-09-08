@@ -171,7 +171,7 @@ export function App() {
       await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
       await publishComments(created.id);
     }
-    await syncParents();
+    void syncParents().catch(error => setDataError(humanizeFirebaseError(error)));
   }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
