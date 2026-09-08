@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -155,10 +155,10 @@ export function App() {
     commentsForDate.__general = parentComment.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
     const previousComments = editingLesson?.parentCommentByDate?.[statusDate] ?? {};
-    const changedComments = Object.entries(commentsForDate).filter(([commentKey, comment]) => comment || previousComments[commentKey]);
+    const changedComments = Object.entries(commentsForDate).filter(([commentKey, comment]) => commentKey !== '__general' || comment || previousComments[commentKey]);
     const publishComments = async (lessonId: string) => {
       if (!changedComments.length) return;
-      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment)));
+      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkDone)));
       await Promise.race([
         writes,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
@@ -189,6 +189,24 @@ export function App() {
       await publishComments(created.id);
     }
     void syncParents().catch(error => setDataError(humanizeFirebaseError(error)));
+  }
+  async function addStudentManually(fullName: string, groupIds: string[]) {
+    const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+    const cleanName = fullName.trim().replace(/\s+/g, ' ');
+    let student = students.find(item => item.active !== false && normalize(item.fullName) === normalize(cleanName));
+    if (student) {
+      await attachStudentToGroups(student, groupIds);
+    } else {
+      const reference = await createStudent(profile.schoolId, cleanName, groupIds);
+      student = { id: reference.id, schoolId: profile.schoolId, fullName: cleanName, groupIds, active: true } as Student;
+    }
+    await Promise.all(lessons.filter(lesson => groupIds.includes(lesson.groupId)).map(lesson => {
+      const roster = lesson.studentRoster ?? [];
+      const exists = roster.some(item => normalize(item.fullName) === normalize(cleanName));
+      return exists ? Promise.resolve() : updateLesson(lesson.id, { studentRoster: [...roster, { id: student!.id, fullName: cleanName }] });
+    }));
+    const existingAccess = parentAccess.find(item => item.active && item.studentIds.includes(student!.id));
+    if (!existingAccess) await createParentLink(profile.schoolId, [student.id]);
   }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
@@ -297,7 +315,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await syncParents(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={async (fullName, groupIds) => { const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е'); let student = students.find(item => item.active !== false && normalize(item.fullName) === normalize(fullName)); if (!student) { const reference = await createStudent(profile.schoolId, fullName, groupIds); student = { id: reference.id, schoolId: profile.schoolId, fullName, groupIds, active: true } as Student; } return createParentLink(profile.schoolId, [student.id]); }} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={async (fullName, groupIds) => { const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е'); let student = students.find(item => item.active !== false && normalize(item.fullName) === normalize(fullName)); if (!student) { const reference = await createStudent(profile.schoolId, fullName, groupIds); student = { id: reference.id, schoolId: profile.schoolId, fullName, groupIds, active: true } as Student; } return createParentLink(profile.schoolId, [student.id]); }} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;

@@ -89,14 +89,20 @@ export async function removePublicLesson(id: string) {
   return deleteDoc(doc(db, 'publicLessons', id));
 }
 
-export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string) {
+export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string, homeworkDone?: boolean) {
   const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
-  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), updatedAt: serverTimestamp() });
+  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), ...(homeworkDone === undefined ? {} : { homeworkDone }), updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
+  return (await getPublicLessonFeedback(lessonId, occurrenceDate, commentKey)).comment;
+}
+
+export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean }> {
   const snapshot = await getDoc(doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`));
-  return snapshot.exists() ? String(snapshot.data().comment ?? '') : '';
+  if (!snapshot.exists()) return { comment: '' };
+  const data = snapshot.data();
+  return { comment: String(data.comment ?? ''), ...(typeof data.homeworkDone === 'boolean' ? { homeworkDone: data.homeworkDone } : {}) };
 }
 
 export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {
@@ -125,6 +131,15 @@ export async function createStudent(schoolId: string, fullName: string, groupIds
     if (group.exists()) await updateGroup(groupId, { studentIds: Array.from(new Set([...(group.data().studentIds ?? []), reference.id])) });
   }));
   return reference;
+}
+
+export async function attachStudentToGroups(student: Student, groupIds: string[]) {
+  const mergedGroupIds = Array.from(new Set([...student.groupIds, ...groupIds]));
+  await updateDoc(doc(db, 'students', student.id), { groupIds: mergedGroupIds, active: true, updatedAt: serverTimestamp() });
+  await Promise.all(groupIds.map(async groupId => {
+    const group = await getDoc(doc(db, 'groups', groupId));
+    if (group.exists()) await updateGroup(groupId, { studentIds: Array.from(new Set([...(group.data().studentIds ?? []), student.id])) });
+  }));
 }
 
 export function subscribeToParentAccess(schoolId: string, next: (items: ParentAccess[]) => void, error: ErrorHandler): Unsubscribe {
