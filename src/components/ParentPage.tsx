@@ -12,7 +12,7 @@ export function ParentPage({ token }: { token: string }) {
   const [selectedLesson, setSelectedLesson] = useState<ParentLessonView | null>(null);
   const [parentComment, setParentComment] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
-  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, { comment: string; homeworkDone?: boolean }>>({});
+  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, { comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean }>>({});
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -37,8 +37,8 @@ export function ParentPage({ token }: { token: string }) {
   const student = view?.students.find(item => item.id === studentId);
   const monthFinished = DateTime.now().setZone('Asia/Yekaterinburg').startOf('day') >= cursor.endOf('month').startOf('day');
   const homeworkSummary = lessons.reduce((summary, lesson) => {
-    const homeworkDone = feedbackByLesson[lesson.id]?.homeworkDone;
-    if (typeof homeworkDone === 'boolean') { summary.total += 1; if (homeworkDone) summary.done += 1; }
+    const feedback = feedbackByLesson[lesson.id];
+    if (feedback?.homeworkAssigned === true) { summary.total += 1; if (feedback.homeworkDone) summary.done += 1; }
     return summary;
   }, { done: 0, total: 0 });
 

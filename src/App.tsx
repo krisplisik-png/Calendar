@@ -143,10 +143,10 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const { students, parentComment, ...lessonFields } = input;
+    const { students, parentComment, homeworkAssigned, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
     const studentRoster = students.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
-    const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkDone }]));
+    const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
     const attendanceCompletedDates = editingLesson
       ? Array.from(new Set([...(editingLesson.attendanceCompletedDates ?? []), statusDate])).sort()
@@ -158,7 +158,7 @@ export function App() {
     const changedComments = Object.entries(commentsForDate).filter(([commentKey, comment]) => commentKey !== '__general' || comment || previousComments[commentKey]);
     const publishComments = async (lessonId: string) => {
       if (!changedComments.length) return;
-      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkDone)));
+      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkDone, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkAssigned)));
       await Promise.race([
         writes,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),

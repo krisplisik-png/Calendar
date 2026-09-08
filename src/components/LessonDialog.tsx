@@ -7,6 +7,7 @@ export interface StudentStatusInput {
   fullName: string;
   attended: boolean;
   homeworkDone: boolean;
+  homeworkAssigned: boolean;
   parentComment: string;
 }
 
@@ -16,12 +17,13 @@ export interface LessonInput {
   course: string; unit: string; lesson: string; topic: string; homework: string; notes: string;
   room: '' | '1' | '2';
   parentComment: string;
+  homeworkAssigned: boolean;
   recurrenceWeekdays: number[]; recurrenceUntil: string; excludedDates: string[];
   students: StudentStatusInput[];
   billingType: 'subscription' | 'single';
 }
 
-const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', room: '', parentComment: '', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
+const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', room: '', parentComment: '', homeworkAssigned: true, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
 
 export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teacherMode = false, onClose, onSave, onDelete }: {
   groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
@@ -41,13 +43,15 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     setSelectedKind(initialKind);
     const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
-    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false, parentComment: lesson?.parentCommentByDate?.[statusDate]?.[student.id] ?? '' }));
+    const hasSavedStatuses = Object.keys(statuses).length > 0;
+    const homeworkAssigned = Object.values(statuses).some(status => status.homeworkAssigned === true) || (!hasSavedStatuses && Boolean(lesson?.homework?.trim()));
+    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false, homeworkAssigned: statuses[student.id]?.homeworkAssigned ?? statuses[student.id]?.homeworkDone === true, parentComment: lesson?.parentCommentByDate?.[statusDate]?.[student.id] ?? '' }));
     const formStudents = rosterStudents.length || initialKind !== 'individual' || !existingGroup
       ? rosterStudents
-      : [{ id: `individual_${existingGroup.id}`, fullName: existingGroup.name, attended: false, homeworkDone: false, parentComment: '' }];
+      : [{ id: `individual_${existingGroup.id}`, fullName: existingGroup.name, attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }];
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
-      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '',
+      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned,
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
       students: formStudents,
       billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),
@@ -70,15 +74,21 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
       ...current,
       groupId,
       students: selectedKind === 'individual' && participant
-        ? [{ id: `individual_${participant.id}`, fullName: participant.name, attended: false, homeworkDone: false, parentComment: '' }]
+        ? [{ id: `individual_${participant.id}`, fullName: participant.name, attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }]
         : selectedKind === 'group' ? current.students : [],
     }));
   }
   function addStudent() {
-    setValue(current => ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false, parentComment: '' }] }));
+    setValue(current => ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }] }));
   }
   function updateStudent(id: string, patch: Partial<StudentStatusInput>) {
     setValue(current => ({ ...current, students: current.students.map(student => student.id === id ? { ...student, ...patch } : student) }));
+  }
+  function setHomeworkResult(id: string, homeworkDone: boolean) {
+    setValue(current => ({ ...current, homeworkAssigned: true, students: current.students.map(student => student.id === id ? { ...student, homeworkAssigned: true, homeworkDone } : student) }));
+  }
+  function setHomeworkNotAssigned(notAssigned: boolean) {
+    setValue(current => ({ ...current, homeworkAssigned: !notAssigned, homework: notAssigned ? '' : current.homework, students: current.students.map(student => ({ ...student, homeworkAssigned: !notAssigned, ...(notAssigned ? { homeworkDone: false } : {}) })) }));
   }
   function removeStudent(id: string) {
     setValue(current => ({ ...current, students: current.students.filter(student => student.id !== id) }));
@@ -138,15 +148,15 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
               <button type="button" className={!student.attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(student.id, { attended: false })}>Не был</button>
             </div>
             <div className="status-choice" aria-label={`Домашняя работа ${student.fullName}`}>
-              <button type="button" className={student.homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(student.id, { homeworkDone: true })}>Есть</button>
-              <button type="button" className={!student.homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(student.id, { homeworkDone: false })}>Нет</button>
+              <button type="button" disabled={!value.homeworkAssigned} className={value.homeworkAssigned && student.homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, true)}>Есть</button>
+              <button type="button" disabled={!value.homeworkAssigned} className={value.homeworkAssigned && !student.homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, false)}>Нет</button>
             </div>
             <input className="parent-comment-input" aria-label={`Комментарий родителю ${student.fullName}`} placeholder="Похвала или замечание" value={student.parentComment} onChange={e => updateStudent(student.id, { parentComment: e.target.value })} />
             <button type="button" className="remove-student" onClick={() => removeStudent(student.id)} aria-label="Удалить ученика из списка"><Trash2 size={15} /></button>
           </div>)}
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
       </section>}
-      {selectedKind === 'individual' && value.students[0] && <section className="student-journal individual-attendance"><div className="student-journal-header"><div><span className="field-caption">Посещение и Д/з</span><small>Отметка на {occurrenceDate ?? value.date}</small></div></div><div className="individual-attendance-row"><strong>{value.students[0].fullName}</strong><div className="status-choice" aria-label="Посещение"><button type="button" className={value.students[0].attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: true })}>Был</button><button type="button" className={!value.students[0].attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: false })}>Не был</button></div><div className="status-choice" aria-label="Домашняя работа"><button type="button" className={value.students[0].homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { homeworkDone: true })}>Д/з есть</button><button type="button" className={!value.students[0].homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { homeworkDone: false })}>Д/з нет</button></div></div></section>}
+      {selectedKind === 'individual' && value.students[0] && <section className="student-journal individual-attendance"><div className="student-journal-header"><div><span className="field-caption">Посещение и Д/з</span><small>Отметка на {occurrenceDate ?? value.date}</small></div></div><div className="individual-attendance-row"><strong>{value.students[0].fullName}</strong><div className="status-choice" aria-label="Посещение"><button type="button" className={value.students[0].attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: true })}>Был</button><button type="button" className={!value.students[0].attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: false })}>Не был</button></div><div className="status-choice" aria-label="Домашняя работа"><button type="button" disabled={!value.homeworkAssigned} className={value.homeworkAssigned && value.students[0].homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, true)}>Есть</button><button type="button" disabled={!value.homeworkAssigned} className={value.homeworkAssigned && !value.students[0].homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, false)}>Нет</button></div></div></section>}
       <section className="recurrence-section">
         <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} disabled={teacherMode} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">
@@ -157,7 +167,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
           <small className="calculation-note">Календарь сам посчитает все выбранные дни каждого месяца. Например, понедельник и четверг будут посчитаны по их фактическому количеству в месяце.</small>
         </div>}
       </section>
-      <label>Домашнее задание<textarea value={value.homework} onChange={e => setValue({ ...value, homework: e.target.value })} /></label>
+      <section className="homework-editor"><label>Домашнее задание<textarea value={value.homework} disabled={!value.homeworkAssigned} onChange={e => setValue({ ...value, homework: e.target.value, homeworkAssigned: Boolean(e.target.value.trim()) || value.homeworkAssigned })} placeholder={value.homeworkAssigned ? 'Напишите домашнюю работу' : 'Домашняя работа не задавалась'} /></label><label className="homework-not-assigned"><input type="checkbox" checked={!value.homeworkAssigned} onChange={e => setHomeworkNotAssigned(e.target.checked)} /><span><strong>Не задавала</strong><small>Это занятие не попадет в подсчет домашних работ</small></span></label></section>
       {selectedKind !== 'group' && <label>Комментарий для родителей<textarea value={value.parentComment} onChange={e => setValue({ ...value, parentComment: e.target.value })} placeholder="Например: Сегодня отлично отвечал и очень старался" /><small className="field-help">Родитель увидит этот комментарий при открытии данного урока. Внутренние заметки ниже родителю не показываются.</small></label>}
       <label>Заметки<textarea value={value.notes} onChange={e => setValue({ ...value, notes: e.target.value })} /></label>
       {confirmDelete && <div className="delete-confirm lesson-delete-confirm" role="alert"><span>{lesson?.recurrenceWeekdays?.length ? 'Что нужно удалить?' : 'Точно удалить это занятие?'}</span><button type="button" className="ghost-button" onClick={() => setConfirmDelete(false)}>Отмена</button>{lesson?.recurrenceWeekdays?.length ? <><button type="button" className="danger-button" onClick={() => remove('occurrence')}>Только это занятие</button><button type="button" className="danger-button" onClick={() => remove('series')}>Всю серию</button></> : <button type="button" className="danger-button" onClick={() => remove('series')}>Да, удалить</button>}</div>}

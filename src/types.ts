@@ -71,6 +71,7 @@ export interface StudentRosterItem {
 export interface StudentLessonStatus {
   attended: boolean;
   homeworkDone: boolean;
+  homeworkAssigned?: boolean;
 }
 
 export interface Student {
