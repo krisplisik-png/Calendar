@@ -179,7 +179,7 @@ async function schoolData(schoolId: string) {
 async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
   const months = parentMonthKeys();
   const activeAccesses = accesses.filter(item => item.active);
-  const parallelLimit = 10;
+  const parallelLimit = 5;
   for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
     await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(async access => {
       // Keep each parent in its own batch so Firestore Rules access limits

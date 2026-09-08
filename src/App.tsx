@@ -306,7 +306,7 @@ export function App() {
   }
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => { setParentDialog(true); void syncParents().catch(error => setDataError(humanizeFirebaseError(error))); }} onExportGroups={() => { setExportDialog(true); void syncParents().catch(error => setDataError(humanizeFirebaseError(error))); }} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => setParentDialog(true)} onExportGroups={() => setExportDialog(true)} onLogout={logout} />
     <main className="workspace">
       {activeView === 'payments' ? <PaymentsPage profile={profile} groups={groups} lessons={lessons} onError={setDataError} /> : <>
       <header className="topbar">
