@@ -208,7 +208,15 @@ async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeo
 
 export async function rebuildParentViewsForSchool(schoolId: string) {
   const data = await schoolData(schoolId);
-  await writeParentViews(schoolId, data, data.accesses);
+  const seenStudents = new Set<string>();
+  const uniqueAccesses = data.accesses.filter(access => {
+    if (!access.active) return false;
+    const key = [...access.studentIds].sort().join('|');
+    if (seenStudents.has(key)) return false;
+    seenStudents.add(key);
+    return true;
+  });
+  await writeParentViews(schoolId, data, uniqueAccesses);
 }
 
 export async function rebuildParentView(access: ParentAccess) {
