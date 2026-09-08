@@ -144,10 +144,9 @@ async function schoolData(schoolId: string) {
   };
 }
 
-export async function rebuildParentViewsForSchool(schoolId: string) {
-  const data = await schoolData(schoolId);
+async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
   const months = parentMonthKeys();
-  const activeAccesses = data.accesses.filter(item => item.active);
+  const activeAccesses = accesses.filter(item => item.active);
   // Each parent uses one rules lookup; keep the batch below Firestore's
   // 20 document-access-call limit for multi-document requests.
   const accessesPerBatch = 15;
@@ -161,6 +160,11 @@ export async function rebuildParentViewsForSchool(schoolId: string) {
     }
     await batch.commit();
   }
+}
+
+export async function rebuildParentViewsForSchool(schoolId: string) {
+  const data = await schoolData(schoolId);
+  await writeParentViews(schoolId, data, data.accesses);
 }
 
 export async function createParentLink(schoolId: string, studentIds: string[]) {
@@ -213,6 +217,7 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
   }
   let studentsCreated = 0;
   let linksCreated = 0;
+  const createdAccesses: ParentAccess[] = [];
 
   for (const group of data.groups) {
     const names = new Set<string>();
@@ -243,9 +248,15 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
 
   for (const student of students.filter(item => item.active !== false && !duplicateStudentIds.has(item.id))) {
     if (normalizedAccesses.some(access => access.active && access.studentIds.includes(student.id))) continue;
-    await addDoc(collection(db, 'parentAccess'), { schoolId, token: generateParentToken(), studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    const token = generateParentToken();
+    const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    const createdAccess = { id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess;
+    createdAccesses.push(createdAccess);
+    normalizedAccesses.push(createdAccess);
     linksCreated += 1;
   }
+  // Make newly created links usable before rebuilding every existing parent view.
+  if (createdAccesses.length) await writeParentViews(schoolId, { ...data, students }, createdAccesses);
   await rebuildParentViewsForSchool(schoolId);
   return { studentsCreated, linksCreated };
 }

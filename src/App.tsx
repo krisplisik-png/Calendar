@@ -48,6 +48,7 @@ export function App() {
   const [parentAccess, setParentAccess] = useState<ParentAccess[]>([]);
   const [parentDialog, setParentDialog] = useState(false);
   const [parentSyncing, setParentSyncing] = useState(false);
+  const [parentSyncError, setParentSyncError] = useState('');
   const parentSyncPromise = useRef<Promise<void> | null>(null);
   const [exportDialog, setExportDialog] = useState(false);
   const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
@@ -111,7 +112,11 @@ export function App() {
   function syncParents() {
     if (parentSyncPromise.current) return parentSyncPromise.current;
     setParentSyncing(true);
-    const operation = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined).finally(() => {
+    setParentSyncError('');
+    const operation = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined).catch(error => {
+      setParentSyncError(humanizeFirebaseError(error));
+      throw error;
+    }).finally(() => {
       parentSyncPromise.current = null;
       setParentSyncing(false);
     });
@@ -290,7 +295,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} syncing={parentSyncing} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await syncParents(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={async (name, groupIds) => { await createStudent(profile.schoolId, name, groupIds); await syncParents(); }} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
