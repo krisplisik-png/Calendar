@@ -73,16 +73,22 @@ export function App() {
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
+    const isGroupLesson = (group?.kind ?? 'group') === 'group';
+    const occurrenceHasEnded = DateTime.fromISO(`${occurrenceDate}T${item.endTime}`, { zone: 'Asia/Yekaterinburg' }) <= now.setZone('Asia/Yekaterinburg');
+    const attendanceState = isGroupLesson && occurrenceHasEnded
+      ? (item.attendanceCompletedDates?.includes(occurrenceDate) ? 'attendance-complete' : 'attendance-missing')
+      : '';
     return {
       id: recurring ? `${item.id}__${occurrenceDate}` : item.id,
       title: `${group?.name ?? 'Без группы'}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
       start: `${occurrenceDate}T${item.startTime}`,
       end: `${occurrenceDate}T${item.endTime}`,
       backgroundColor: group?.color ?? '#a98be8', borderColor: group?.color ?? '#a98be8',
+      classNames: attendanceState ? [attendanceState] : [],
       editable: !recurring,
       extendedProps: { lesson: item, occurrenceDate },
     };
-  })), [lessons, groupMap, selectedGroups, search]);
+  })), [lessons, groupMap, selectedGroups, search, now]);
 
   if (parentToken) return <ParentPage token={parentToken} />;
   if (loading) return <LoadingScreen />;
@@ -125,6 +131,9 @@ export function App() {
     const studentRoster = students.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkDone }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
+    const attendanceCompletedDates = editingLesson
+      ? Array.from(new Set([...(editingLesson.attendanceCompletedDates ?? []), statusDate])).sort()
+      : [];
     const commentsForDate = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
@@ -139,7 +148,7 @@ export function App() {
       ]);
     };
     if (teacherMode && editingLesson) {
-      await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, parentCommentByDate });
+      await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate });
       await publishComments(editingLesson.id);
       return;
     }
@@ -150,6 +159,7 @@ export function App() {
       ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
       studentRoster,
       studentStatusByDate,
+      attendanceCompletedDates,
       parentCommentByDate,
     };
     if (editingLesson) {
@@ -249,6 +259,7 @@ export function App() {
       {dataError && <div className="data-error" role="alert">{dataError}<button onClick={() => setDataError(null)}>×</button></div>}
       <section className="calendar-card">
         <div className="zone-caption">Расписание показано: {zone === 'Asia/Yekaterinburg' ? 'Пермь' : 'Москва'}</div>
+        <div className="attendance-legend"><span className="complete">Посещаемость заполнена</span><span className="missing">Нужно заполнить</span></div>
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={localStorage.getItem('calendar-view') || 'dayGridMonth'}

@@ -160,6 +160,7 @@ export interface Lesson {
   excludedDates?: string[];
   studentRoster?: StudentRosterItem[];
   studentStatusByDate?: Record<string, Record<string, StudentLessonStatus>>;
+  attendanceCompletedDates?: string[];
   parentCommentByDate?: Record<string, Record<string, string>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;

@@ -22,7 +22,7 @@ service cloud.firestore {
     match /lessons/{lessonId} {
       allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
-      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'parentCommentByDate', 'updatedAt'])));
+      allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'attendanceCompletedDates', 'parentCommentByDate', 'updatedAt'])));
       allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
