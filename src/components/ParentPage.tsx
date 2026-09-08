@@ -16,7 +16,26 @@ export function ParentPage({ token }: { token: string }) {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => { getParentView(token).then(data => { setView(data); if (data?.students[0]) setStudentId(data.students[0].id); }).catch(() => setError('Не удалось загрузить расписание.')); }, [token]);
+  useEffect(() => {
+    let active = true;
+    setView(undefined); setError('');
+    const timeout = window.setTimeout(() => {
+      if (!active) return;
+      active = false;
+      setView(null);
+      setError('Firebase не ответил вовремя. Обновите страницу или попросите администратора открыть эту ссылку из календаря ещё раз.');
+    }, 20_000);
+    getParentView(token).then(data => {
+      if (!active) return;
+      active = false; window.clearTimeout(timeout); setView(data);
+      if (data?.students[0]) setStudentId(data.students[0].id);
+      else if (data) setError('В ссылке пока нет данных ребенка. Попросите администратора открыть её из раздела «Родительский доступ», чтобы восстановить расписание.');
+    }).catch(() => {
+      if (!active) return;
+      active = false; window.clearTimeout(timeout); setView(null); setError('Не удалось загрузить расписание. Попросите администратора подготовить ссылку ещё раз.');
+    });
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [token]);
   useEffect(() => { if (!view?.active) return; setMonthData(undefined); getParentMonth(token, month).then(setMonthData).catch(() => setError('Не удалось загрузить выбранный месяц.')); }, [token, month, view]);
   const lessons = useMemo(() => (monthData?.lessons ?? []).filter(item => !studentId || item.studentIds.includes(studentId)), [monthData, studentId]);
   useEffect(() => {

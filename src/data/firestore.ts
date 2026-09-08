@@ -308,7 +308,13 @@ export async function disableParentLink(access: ParentAccess) {
 
 export async function getParentView(token: string): Promise<ParentView | null> {
   const snapshot = await getDoc(doc(db, 'parentViews', token));
-  return snapshot.exists() ? mapDocument<ParentView>(snapshot.data(), snapshot.id) : null;
+  if (!snapshot.exists()) return null;
+  const view = mapDocument<ParentView>(snapshot.data(), snapshot.id);
+  return {
+    ...view,
+    students: Array.isArray(view.students) ? view.students : [],
+    availableMonths: Array.isArray(view.availableMonths) ? view.availableMonths : [],
+  };
 }
 
 export async function getParentMonth(token: string, month: string): Promise<ParentMonthView | null> {
