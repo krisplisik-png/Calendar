@@ -20,6 +20,7 @@ export function ParentPage({ token }: { token: string }) {
     let active = true;
     setView(undefined); setError('');
     const load = async () => {
+      let lastError = '';
       for (let attempt = 0; attempt < 8 && active; attempt += 1) {
         try {
           const data = await getParentView(token);
@@ -27,12 +28,14 @@ export function ParentPage({ token }: { token: string }) {
             if (!active) return;
             setView(data); setStudentId(data.students[0].id); return;
           }
-        } catch { /* The administrator may still be rebuilding this public view. */ }
+        } catch (loadError) {
+          lastError = loadError instanceof Error ? loadError.message : String(loadError);
+        }
         await new Promise(resolve => window.setTimeout(resolve, 1500));
       }
       if (!active) return;
       setView(null);
-      setError('Данные этой ссылки не созданы в Firebase. Откройте ссылку кнопкой из раздела «Родительский доступ» ещё раз.');
+      setError(`Данные этой ссылки не созданы в Firebase.${lastError ? ` Ошибка Firebase: ${lastError}` : ''}`);
     };
     void load();
     return () => { active = false; };

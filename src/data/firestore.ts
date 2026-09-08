@@ -182,12 +182,12 @@ async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeo
   const parallelLimit = 5;
   for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
     await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(async access => {
-      // Keep each parent in its own batch so Firestore Rules access limits
-      // cannot reject a large school-wide update.
-      const batch = writeBatch(db);
       const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
       const lessonsByMonth = buildParentLessons(access.studentIds, data.students, data.groups, data.lessons, data.teachers, months);
-      batch.set(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
+      // Create the public link first. A problem in one monthly document must
+      // never roll back the link itself and make it look invalid.
+      await setDoc(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
+      const batch = writeBatch(db);
       months.forEach(month => batch.set(doc(db, 'parentViews', access.token, 'months', month), { month, lessons: lessonsByMonth[month], updatedAt: serverTimestamp() }));
       await batch.commit();
     }));
