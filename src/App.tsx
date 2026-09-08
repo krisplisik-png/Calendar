@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -143,15 +143,16 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const { students, parentComment, homeworkAssigned, ...lessonFields } = input;
+    const schoolStudents = students;
+    const { students: lessonStudents, parentComment, homeworkAssigned, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
-    const studentRoster = students.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
-    const dateStatuses = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
+    const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
+    const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
     const attendanceCompletedDates = editingLesson
       ? Array.from(new Set([...(editingLesson.attendanceCompletedDates ?? []), statusDate])).sort()
       : [];
-    const commentsForDate = Object.fromEntries(students.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
+    const commentsForDate = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
     const previousComments = editingLesson?.parentCommentByDate?.[statusDate] ?? {};
@@ -163,6 +164,31 @@ export function App() {
         writes,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
       ]);
+    };
+    const propagateCorrectedStudentNames = async () => {
+      if (!canManage || !editingLesson) return;
+      const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+      const corrections = studentRoster.flatMap(current => {
+        const previous = editingLesson.studentRoster?.find(item => item.id === current.id);
+        return previous && normalize(previous.fullName) !== normalize(current.fullName)
+          ? [{ rosterId: current.id, previousName: previous.fullName, fullName: current.fullName }]
+          : [];
+      });
+      for (const correction of corrections) {
+        const student = schoolStudents.find(item => item.active !== false && item.groupIds.includes(input.groupId)
+          && (item.id === correction.rosterId || normalize(item.fullName) === normalize(correction.previousName)));
+        if (student) await updateStudentName(student.id, correction.fullName);
+        await Promise.all(lessons.filter(item => item.groupId === input.groupId && item.id !== editingLesson.id).map(item => {
+          const roster = item.studentRoster ?? [];
+          let changed = false;
+          const updatedRoster = roster.map(rosterStudent => {
+            if (rosterStudent.id !== correction.rosterId && normalize(rosterStudent.fullName) !== normalize(correction.previousName)) return rosterStudent;
+            changed = true;
+            return { ...rosterStudent, fullName: correction.fullName };
+          });
+          return changed ? updateLesson(item.id, { studentRoster: updatedRoster }) : Promise.resolve();
+        }));
+      }
     };
     if (teacherMode && editingLesson) {
       await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate });
@@ -181,6 +207,7 @@ export function App() {
     };
     if (editingLesson) {
       await updateLesson(editingLesson.id, payload);
+      await propagateCorrectedStudentNames();
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...payload }, selectedGroup);
       await publishComments(editingLesson.id);
     } else {

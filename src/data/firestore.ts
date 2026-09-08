@@ -146,6 +146,13 @@ export async function attachStudentToGroups(student: Student, groupIds: string[]
   }));
 }
 
+export async function updateStudentName(studentId: string, fullName: string) {
+  return updateDoc(doc(db, 'students', studentId), {
+    fullName: fullName.trim().replace(/\s+/g, ' '),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export function subscribeToParentAccess(schoolId: string, next: (items: ParentAccess[]) => void, error: ErrorHandler): Unsubscribe {
   const accessQuery = query(collection(db, 'parentAccess'), where('schoolId', '==', schoolId));
   return onSnapshot(accessQuery, snapshot => next(snapshot.docs.map(item => mapDocument<ParentAccess>(item.data(), item.id))), error);
