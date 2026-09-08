@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -48,6 +48,7 @@ export function App() {
   const [parentAccess, setParentAccess] = useState<ParentAccess[]>([]);
   const [parentDialog, setParentDialog] = useState(false);
   const [parentSyncing, setParentSyncing] = useState(false);
+  const parentSyncPromise = useRef<Promise<void> | null>(null);
   const [exportDialog, setExportDialog] = useState(false);
   const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
 
@@ -107,7 +108,16 @@ export function App() {
     return next;
   });
   async function refreshParentViews() { if (canManage) await rebuildParentViewsForSchool(profile.schoolId); }
-  async function syncParents() { setParentSyncing(true); try { await syncParentLinksFromSchedule(profile.schoolId); } finally { setParentSyncing(false); } }
+  function syncParents() {
+    if (parentSyncPromise.current) return parentSyncPromise.current;
+    setParentSyncing(true);
+    const operation = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined).finally(() => {
+      parentSyncPromise.current = null;
+      setParentSyncing(false);
+    });
+    parentSyncPromise.current = operation;
+    return operation;
+  }
   async function saveGroup(input: GroupInput) { if (editingGroup) await updateGroup(editingGroup.id, input); else await createGroup(profile.schoolId, input); await syncParents(); }
   async function deleteGroup(group: Group) {
     try {

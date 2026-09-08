@@ -147,12 +147,16 @@ async function schoolData(schoolId: string) {
 export async function rebuildParentViewsForSchool(schoolId: string) {
   const data = await schoolData(schoolId);
   const months = parentMonthKeys();
-  for (const access of data.accesses.filter(item => item.active)) {
-    const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
-    const lessonsByMonth = buildParentLessons(access.studentIds, data.students, data.groups, data.lessons, data.teachers, months);
+  const activeAccesses = data.accesses.filter(item => item.active);
+  const accessesPerBatch = 35;
+  for (let offset = 0; offset < activeAccesses.length; offset += accessesPerBatch) {
     const batch = writeBatch(db);
-    batch.set(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
-    months.forEach(month => batch.set(doc(db, 'parentViews', access.token, 'months', month), { month, lessons: lessonsByMonth[month], updatedAt: serverTimestamp() }));
+    for (const access of activeAccesses.slice(offset, offset + accessesPerBatch)) {
+      const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
+      const lessonsByMonth = buildParentLessons(access.studentIds, data.students, data.groups, data.lessons, data.teachers, months);
+      batch.set(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
+      months.forEach(month => batch.set(doc(db, 'parentViews', access.token, 'months', month), { month, lessons: lessonsByMonth[month], updatedAt: serverTimestamp() }));
+    }
     await batch.commit();
   }
 }
