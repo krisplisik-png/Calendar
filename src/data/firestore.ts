@@ -213,6 +213,29 @@ export async function createParentLink(schoolId: string, studentIds: string[]) {
   return token;
 }
 
+export async function ensureParentLinkForStudent(schoolId: string, fullName: string, groupIds: string[]) {
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  const cleanName = fullName.trim().replace(/\s+/g, ' ');
+  let data = await schoolData(schoolId);
+  let student = data.students.find(item => item.active !== false && normalize(item.fullName) === normalize(cleanName));
+  if (!student) {
+    const reference = await createStudent(schoolId, cleanName, groupIds);
+    student = { id: reference.id, schoolId, fullName: cleanName, groupIds, active: true } as Student;
+  } else if (groupIds.some(groupId => !student!.groupIds.includes(groupId))) {
+    await attachStudentToGroups(student, groupIds);
+    student = { ...student, groupIds: Array.from(new Set([...student.groupIds, ...groupIds])) };
+  }
+  data = await schoolData(schoolId);
+  let access = data.accesses.find(item => item.active && item.studentIds.includes(student!.id));
+  if (!access) {
+    const token = generateParentToken();
+    const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    access = { id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess;
+  }
+  await rebuildParentView(access);
+  return access.token;
+}
+
 export async function syncParentLinksFromSchedule(schoolId: string) {
   const data = await schoolData(schoolId);
   const normalizeName = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
