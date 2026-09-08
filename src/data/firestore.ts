@@ -199,6 +199,11 @@ export async function rebuildParentViewsForSchool(schoolId: string) {
   await writeParentViews(schoolId, data, data.accesses);
 }
 
+export async function rebuildParentView(access: ParentAccess) {
+  const data = await schoolData(access.schoolId);
+  await writeParentViews(access.schoolId, data, [{ ...access, active: true }]);
+}
+
 export async function createParentLink(schoolId: string, studentIds: string[]) {
   const token = generateParentToken();
   const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds, active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
