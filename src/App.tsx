@@ -211,7 +211,13 @@ export function App() {
       await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
       await publishComments(created.id);
     }
-    void syncParents().catch(error => setDataError(humanizeFirebaseError(error)));
+    const normalizeStudentName = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+    const knownStudentNames = new Set(students.filter(student => student.active !== false).map(student => normalizeStudentName(student.fullName)));
+    const newStudentNames = Array.from(new Set(studentRoster.map(student => student.fullName))).filter(fullName => !knownStudentNames.has(normalizeStudentName(fullName)));
+    void (async () => {
+      for (const fullName of newStudentNames) await ensureParentLinkForStudent(profile.schoolId, fullName, [input.groupId]);
+      await syncParents();
+    })().catch(error => setDataError(humanizeFirebaseError(error)));
   }
   async function addStudentManually(fullName: string, groupIds: string[]) {
     const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');

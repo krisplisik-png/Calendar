@@ -64,14 +64,14 @@ service cloud.firestore {
     match /parentViews/{token} {
       allow get: if resource.data.active == true;
       allow list: if false;
-      allow create: if sameSchool(request.resource.data.schoolId) && manager();
-      allow update: if sameSchool(resource.data.schoolId) && manager();
+      allow create: if manager();
+      allow update: if manager();
       allow delete: if sameSchool(resource.data.schoolId) && manager();
 
       match /months/{month} {
         allow get: if get(/databases/$(database)/documents/parentViews/$(token)).data.active == true;
         allow list: if false;
-        allow create, update: if manager() && sameSchool(getAfter(/databases/$(database)/documents/parentViews/$(token)).data.schoolId);
+        allow create, update: if manager();
         allow delete: if manager() && sameSchool(get(/databases/$(database)/documents/parentViews/$(token)).data.schoolId);
       }
     }

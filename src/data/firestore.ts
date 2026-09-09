@@ -244,7 +244,9 @@ export async function rebuildParentViewsForSchool(schoolId: string) {
 
 export async function rebuildParentView(access: ParentAccess) {
   const data = await schoolData(access.schoolId);
-  await writeParentViews(access.schoolId, data, [{ ...access, active: true }]);
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').startOf('month');
+  const visibleMonths = [0, 1].map(offset => currentMonth.plus({ months: offset }).toFormat('yyyy-MM'));
+  await writeParentViews(access.schoolId, data, [{ ...access, active: true }], visibleMonths);
 }
 
 export async function createParentLink(schoolId: string, studentIds: string[]) {
@@ -271,19 +273,27 @@ export async function ensureParentLinkForStudent(schoolId: string, fullName: str
     student = { ...student, groupIds: Array.from(new Set([...student.groupIds, ...groupIds])) };
   }
   const matchingIds = new Set(matchingStudents.map(item => item.id));
-  data = await schoolData(schoolId);
   let matchingAccesses = data.accesses.filter(item => item.active && item.studentIds.some(id => matchingIds.has(id)));
   if (!matchingAccesses.length) {
     const token = generateParentToken();
     const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     matchingAccesses = [{ id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess];
   }
-  await Promise.all(matchingAccesses.map(access => access.studentIds.length === 1 && access.studentIds[0] === student!.id
-    ? Promise.resolve()
-    : updateDoc(doc(db, 'parentAccess', access.id), { studentIds: [student!.id], updatedAt: serverTimestamp() })));
-  data = await schoolData(schoolId);
   const normalizedAccesses = matchingAccesses.map(access => ({ ...access, studentIds: [student!.id] }));
-  await writeParentViewRoots(schoolId, data, normalizedAccesses);
+  const effectiveStudents = [...data.students.filter(item => !matchingIds.has(item.id)), student];
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
+  const lessons = buildParentLessons([student.id], effectiveStudents, data.groups, data.lessons, data.teachers, [currentMonth])[currentMonth];
+  await Promise.all(normalizedAccesses.map(async (access, index) => {
+    const originalAccess = matchingAccesses[index];
+    if (originalAccess.studentIds.length !== 1 || originalAccess.studentIds[0] !== student!.id) {
+      await updateDoc(doc(db, 'parentAccess', access.id), { studentIds: [student!.id], updatedAt: serverTimestamp() });
+    }
+    await setDoc(doc(db, 'parentViews', access.token), {
+      schoolId, active: true, students: [{ id: student!.id, fullName: student!.fullName }],
+      availableMonths: parentMonthKeys(), updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await setDoc(doc(db, 'parentViews', access.token, 'months', currentMonth), { month: currentMonth, lessons, updatedAt: serverTimestamp() });
+  }));
   return normalizedAccesses[0].token;
 }
 
