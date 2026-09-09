@@ -283,7 +283,7 @@ export async function ensureParentLinkForStudent(schoolId: string, fullName: str
     : updateDoc(doc(db, 'parentAccess', access.id), { studentIds: [student!.id], updatedAt: serverTimestamp() })));
   data = await schoolData(schoolId);
   const normalizedAccesses = matchingAccesses.map(access => ({ ...access, studentIds: [student!.id] }));
-  await writeParentViews(schoolId, data, normalizedAccesses);
+  await writeParentViewRoots(schoolId, data, normalizedAccesses);
   return normalizedAccesses[0].token;
 }
 
