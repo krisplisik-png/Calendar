@@ -45,10 +45,32 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
     const hasSavedStatuses = Object.keys(statuses).length > 0;
     const homeworkAssigned = Object.values(statuses).some(status => status.homeworkAssigned === true) || (!hasSavedStatuses && Boolean(lesson?.homework?.trim()));
-    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({ id: student.id, fullName: student.fullName, attended: statuses[student.id]?.attended ?? false, homeworkDone: statuses[student.id]?.homeworkDone ?? false, homeworkAssigned: statuses[student.id]?.homeworkAssigned ?? statuses[student.id]?.homeworkDone === true, parentComment: lesson?.parentCommentByDate?.[statusDate]?.[student.id] ?? '' }));
-    const formStudents = rosterStudents.length || initialKind !== 'individual' || !existingGroup
-      ? rosterStudents
-      : [{ id: `individual_${existingGroup.id}`, fullName: existingGroup.name, attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }];
+    const comments = lesson?.parentCommentByDate?.[statusDate] ?? {};
+    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({
+      id: student.id,
+      fullName: student.fullName,
+      attended: statuses[student.id]?.attended ?? false,
+      homeworkDone: statuses[student.id]?.homeworkDone ?? false,
+      homeworkAssigned: statuses[student.id]?.homeworkAssigned ?? statuses[student.id]?.homeworkDone === true,
+      parentComment: comments[student.id] ?? '',
+    }));
+    const formStudents = initialKind === 'individual' && existingGroup
+      ? (() => {
+          const stableId = `individual_${existingGroup.id}`;
+          const previousStudent = rosterStudents[0];
+          const savedStatus = statuses[stableId]
+            ?? (previousStudent ? statuses[previousStudent.id] : undefined)
+            ?? Object.values(statuses)[0];
+          return [{
+            id: stableId,
+            fullName: existingGroup.name,
+            attended: savedStatus?.attended ?? false,
+            homeworkDone: savedStatus?.homeworkDone ?? false,
+            homeworkAssigned: savedStatus?.homeworkAssigned ?? savedStatus?.homeworkDone === true,
+            parentComment: comments[stableId] ?? (previousStudent ? comments[previousStudent.id] : '') ?? '',
+          }];
+        })()
+      : rosterStudents;
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
       course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned,

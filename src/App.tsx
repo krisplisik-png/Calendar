@@ -93,8 +93,10 @@ export function App() {
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
     const tracksAttendance = ['group', 'individual'].includes(group?.kind ?? 'group');
     const occurrenceHasEnded = DateTime.fromISO(`${occurrenceDate}T${item.endTime}`, { zone: 'Asia/Yekaterinburg' }) <= now.setZone('Asia/Yekaterinburg');
+    const savedStatuses = item.studentStatusByDate?.[occurrenceDate];
+    const hasSavedAttendance = Boolean(savedStatuses && Object.values(savedStatuses).some(status => typeof status.attended === 'boolean'));
     const attendanceState = tracksAttendance && occurrenceHasEnded
-      ? (item.attendanceCompletedDates?.includes(occurrenceDate) ? 'attendance-complete' : 'attendance-missing')
+      ? (item.attendanceCompletedDates?.includes(occurrenceDate) || hasSavedAttendance ? 'attendance-complete' : 'attendance-missing')
       : '';
     return {
       id: recurring ? `${item.id}__${occurrenceDate}` : item.id,
