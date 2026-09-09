@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { DateTime } from 'luxon';
-import type { Group, Lesson, ParentAccess, ParentMonthView, ParentView, Payment, SchoolUser, Student } from '../types';
+import type { Group, Lesson, ParentAccess, ParentMonthView, ParentView, Payment, PublicGroupLesson, SchoolUser, Student } from '../types';
 import { buildParentLessons, generateParentToken, parentMonthKeys } from '../domain/parentViews';
 
 type Unsubscribe = () => void;
@@ -77,37 +77,54 @@ export async function removeLesson(id: string) {
 }
 
 export async function publishPublicLesson(id: string, schoolId: string, lesson: Partial<Lesson>, group?: Group) {
-  if (group?.kind !== 'group' || !lesson.minAge || !lesson.maxAge) {
+  if (!group || (group.kind ?? 'group') !== 'group') {
     return deleteDoc(doc(db, 'publicLessons', id));
+  }
+  let teacherName = '';
+  if (lesson.teacherId) {
+    const teacher = await getDoc(doc(db, 'users', lesson.teacherId));
+    teacherName = teacher.exists() ? String(teacher.data().name ?? '') : '';
   }
   return setDoc(doc(db, 'publicLessons', id), {
     schoolId, groupId: group.id, groupName: group.name,
-    minAge: lesson.minAge, maxAge: lesson.maxAge,
     date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime,
     course: lesson.course ?? '', recurrenceWeekdays: lesson.recurrenceWeekdays ?? [],
     recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
+    ...(typeof lesson.minAge === 'number' ? { minAge: lesson.minAge } : {}),
+    ...(typeof lesson.maxAge === 'number' ? { maxAge: lesson.maxAge } : {}),
+    ...(teacherName ? { teacherName } : {}),
+    ...(lesson.unit ? { unit: lesson.unit } : {}),
+    ...(lesson.lesson ? { lesson: lesson.lesson } : {}),
+    ...(lesson.topic ? { topic: lesson.topic } : {}),
+    ...(lesson.homework ? { homework: lesson.homework } : {}),
+    ...(lesson.room ? { room: lesson.room } : {}),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function getPublicGroupLessons(groupId: string) {
+  const snapshot = await getDocs(query(collection(db, 'publicLessons'), where('groupId', '==', groupId)));
+  return snapshot.docs.map(item => mapDocument<PublicGroupLesson>(item.data(), item.id));
 }
 
 export async function removePublicLesson(id: string) {
   return deleteDoc(doc(db, 'publicLessons', id));
 }
 
-export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string, homeworkDone?: boolean, homeworkAssigned?: boolean) {
+export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string, homeworkDone?: boolean, homeworkAssigned?: boolean, homework?: string) {
   const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
-  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), ...(homeworkDone === undefined ? {} : { homeworkDone }), ...(homeworkAssigned === undefined ? {} : { homeworkAssigned }), updatedAt: serverTimestamp() }, { merge: true });
+  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), ...(homeworkDone === undefined ? {} : { homeworkDone }), ...(homeworkAssigned === undefined ? {} : { homeworkAssigned }), ...(homework === undefined ? {} : { homework: homework.trim() }), updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
   return (await getPublicLessonFeedback(lessonId, occurrenceDate, commentKey)).comment;
 }
 
-export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean }> {
+export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string }> {
   const snapshot = await getDoc(doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`));
   if (!snapshot.exists()) return { comment: '' };
   const data = snapshot.data();
-  return { comment: String(data.comment ?? ''), ...(typeof data.homeworkDone === 'boolean' ? { homeworkDone: data.homeworkDone } : {}), ...(typeof data.homeworkAssigned === 'boolean' ? { homeworkAssigned: data.homeworkAssigned } : {}) };
+  return { comment: String(data.comment ?? ''), ...(typeof data.homeworkDone === 'boolean' ? { homeworkDone: data.homeworkDone } : {}), ...(typeof data.homeworkAssigned === 'boolean' ? { homeworkAssigned: data.homeworkAssigned } : {}), ...(typeof data.homework === 'string' ? { homework: data.homework } : {}) };
 }
 
 export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {

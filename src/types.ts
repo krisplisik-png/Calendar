@@ -138,6 +138,26 @@ export interface ParentMonthView {
   updatedAt?: Timestamp;
 }
 
+export interface PublicGroupLesson {
+  id: string;
+  schoolId: string;
+  groupId: string;
+  groupName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  course?: string;
+  teacherName?: string;
+  unit?: string;
+  lesson?: string;
+  topic?: string;
+  homework?: string;
+  room?: '' | '1' | '2';
+  recurrenceWeekdays?: number[];
+  recurrenceUntil?: string;
+  excludedDates?: string[];
+}
+
 export interface Lesson {
   id: string;
   schoolId: string;
