@@ -12,7 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, savePublicLessonComment, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
+import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonProgress, savePublicLessonComment, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
@@ -170,9 +170,9 @@ export function App() {
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
-    const attendanceCompletedDates = editingLesson
-      ? Array.from(new Set([...(editingLesson.attendanceCompletedDates ?? []), statusDate])).sort()
-      : [];
+    const attendanceCompletedDates = lessonStudents.some(student => student.fullName.trim())
+      ? Array.from(new Set([...(editingLesson?.attendanceCompletedDates ?? []), statusDate])).sort()
+      : (editingLesson?.attendanceCompletedDates ?? []);
     const commentsForDate = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
@@ -186,6 +186,13 @@ export function App() {
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
       ]);
     };
+    const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, {
+      homework: input.homework,
+      notes: input.notes,
+      studentRoster,
+      statuses: dateStatuses,
+      comments: commentsForDate,
+    });
     const propagateCorrectedStudentNames = async () => {
       if (!canManage || !editingLesson) return;
       const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
@@ -210,28 +217,26 @@ export function App() {
       }
     };
     if (teacherMode && editingLesson) {
-      await updateLesson(editingLesson.id, { homework: input.homework, notes: input.notes, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate });
+      await saveProgress(editingLesson.id);
       await publishComments(editingLesson.id);
       return;
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
     const selectedGroup = groups.find(group => group.id === input.groupId);
-    const payload = {
+    const lessonPayload = {
       ...lessonFields,
       ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
-      studentRoster,
-      studentStatusByDate,
-      attendanceCompletedDates,
-      parentCommentByDate,
     };
     if (editingLesson) {
-      await updateLesson(editingLesson.id, payload);
+      await updateLesson(editingLesson.id, lessonPayload);
+      await saveProgress(editingLesson.id);
       await propagateCorrectedStudentNames();
-      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...payload }, selectedGroup);
+      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster }, selectedGroup);
       await publishComments(editingLesson.id);
     } else {
-      const created = await createLesson(profile.schoolId, payload);
-      await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
+      const newLesson = { ...lessonPayload, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate };
+      const created = await createLesson(profile.schoolId, newLesson);
+      await publishPublicLesson(created.id, profile.schoolId, newLesson, selectedGroup);
       await publishComments(created.id);
     }
     // Group links read the published lesson directly. Updating legacy parent

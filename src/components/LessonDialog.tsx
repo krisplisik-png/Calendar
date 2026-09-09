@@ -46,14 +46,22 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     const hasSavedStatuses = Object.keys(statuses).length > 0;
     const homeworkAssigned = Object.values(statuses).some(status => status.homeworkAssigned === true) || (!hasSavedStatuses && Boolean(lesson?.homework?.trim()));
     const comments = lesson?.parentCommentByDate?.[statusDate] ?? {};
-    const rosterStudents = (lesson?.studentRoster ?? []).map(student => ({
-      id: student.id,
-      fullName: student.fullName,
-      attended: statuses[student.id]?.attended ?? false,
-      homeworkDone: statuses[student.id]?.homeworkDone ?? false,
-      homeworkAssigned: statuses[student.id]?.homeworkAssigned ?? statuses[student.id]?.homeworkDone === true,
-      parentComment: comments[student.id] ?? '',
-    }));
+    const savedStatusEntries = Object.values(statuses);
+    const savedCommentEntries = Object.entries(comments).filter(([key]) => key !== '__general').map(([, comment]) => comment);
+    const rosterStudents = (lesson?.studentRoster ?? []).map((student, index) => {
+      // Older group lessons could receive new roster IDs during synchronization.
+      // Fall back to the matching row position once, then the next save migrates
+      // the status to the current stable roster ID.
+      const savedStatus = statuses[student.id] ?? savedStatusEntries[index];
+      return {
+        id: student.id,
+        fullName: student.fullName,
+        attended: savedStatus?.attended ?? false,
+        homeworkDone: savedStatus?.homeworkDone ?? false,
+        homeworkAssigned: savedStatus?.homeworkAssigned ?? savedStatus?.homeworkDone === true,
+        parentComment: comments[student.id] ?? savedCommentEntries[index] ?? '',
+      };
+    });
     const formStudents = initialKind === 'individual' && existingGroup
       ? (() => {
           const stableId = `individual_${existingGroup.id}`;

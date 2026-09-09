@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc,
+  addDoc, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc,
   updateDoc, where, writeBatch, type DocumentData, type FirestoreError,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -66,6 +66,41 @@ export async function createLesson(schoolId: string, input: Omit<Lesson, 'id' | 
 
 export async function updateLesson(id: string, input: Partial<Omit<Lesson, 'id' | 'schoolId' | 'createdAt'>>) {
   return updateDoc(doc(db, 'lessons', id), { ...withoutUndefined(input), updatedAt: serverTimestamp() });
+}
+
+export async function saveLessonProgress(id: string, occurrenceDate: string, input: {
+  homework: string;
+  notes: string;
+  studentRoster: NonNullable<Lesson['studentRoster']>;
+  statuses: NonNullable<Lesson['studentStatusByDate']>[string];
+  comments: NonNullable<Lesson['parentCommentByDate']>[string];
+}) {
+  const reference = doc(db, 'lessons', id);
+  await updateDoc(reference, {
+    homework: input.homework,
+    notes: input.notes,
+    studentRoster: input.studentRoster,
+    [`studentStatusByDate.${occurrenceDate}`]: input.statuses,
+    attendanceCompletedDates: arrayUnion(occurrenceDate),
+    [`parentCommentByDate.${occurrenceDate}`]: input.comments,
+    updatedAt: serverTimestamp(),
+  });
+
+  // Do not close the lesson dialog until Firestore returns the values that were
+  // just saved. This catches rejected or incomplete attendance writes instead
+  // of showing a false success that disappears after a page refresh.
+  const savedSnapshot = await getDoc(reference);
+  const savedLesson = savedSnapshot.exists() ? savedSnapshot.data() as Lesson : undefined;
+  const savedStatuses = savedLesson?.studentStatusByDate?.[occurrenceDate];
+  const statusWasSaved = Object.entries(input.statuses).every(([studentId, expected]) => {
+    const actual = savedStatuses?.[studentId];
+    return actual?.attended === expected.attended
+      && actual?.homeworkDone === expected.homeworkDone
+      && actual?.homeworkAssigned === expected.homeworkAssigned;
+  });
+  if (!savedLesson || !statusWasSaved || savedLesson.homework !== input.homework) {
+    throw new Error('Firebase не подтвердил сохранение посещаемости и домашнего задания. Попробуйте ещё раз.');
+  }
 }
 
 export async function setLessonTeacher(id: string, teacherId: string) {
