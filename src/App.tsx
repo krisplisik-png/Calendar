@@ -263,9 +263,9 @@ export function App() {
     const group = groups.find(item => item.id === groupId);
     if (!group) throw new Error('Выбранная группа не найдена.');
     if ((group.kind ?? 'group') !== 'group') throw new Error('Простая ссылка создаётся только для групповых занятий.');
-    const student = await addStudentManually(fullName, [groupId], false);
     const publication = Promise.all(lessons.filter(lesson => lesson.groupId === groupId).map(lesson => publishPublicLesson(lesson.id, profile.schoolId, lesson, group)));
     void publication.catch(error => setDataError(humanizeFirebaseError(error)));
+    const student = await addStudentManually(fullName, [groupId], false);
     await Promise.race([publication.catch(() => undefined), new Promise(resolve => window.setTimeout(resolve, 6000))]);
     return student.id;
   }

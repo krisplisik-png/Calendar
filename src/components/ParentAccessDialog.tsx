@@ -75,17 +75,26 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
     const fullName = simpleName.trim().replace(/\s+/g, ' ');
     const group = groups.find(item => item.id === simpleGroupId);
     if (!fullName || !group) return;
-    setBusy(true); setOperationError('');
+    const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+    const localStudentId = students.find(student => student.active !== false && normalize(student.fullName) === normalize(fullName))?.id
+      ?? lessons.filter(lesson => lesson.groupId === group.id).flatMap(lesson => lesson.studentRoster ?? []).find(student => normalize(student.fullName) === normalize(fullName))?.id;
+    const link = { id: `${group.id}:${fullName.toLocaleLowerCase('ru')}`, fullName, studentId: localStudentId, groupId: group.id, groupName: group.name };
+    const next = [...simpleLinks.filter(item => item.id !== link.id), link];
+    saveSimpleLinks(next);
     try {
-      const studentId = await onCreateSimpleLink(fullName, group.id);
-      const link = { id: `${group.id}:${fullName.toLocaleLowerCase('ru')}`, fullName, studentId, groupId: group.id, groupName: group.name };
-      const next = [...simpleLinks.filter(item => item.id !== link.id), link];
-      saveSimpleLinks(next);
       await navigator.clipboard.writeText(simpleUrlFor(link));
       setNotice(`Простая ссылка для ${fullName} создана и скопирована`);
-      setSimpleName(''); setSimpleGroupId('');
-    } catch (error) { setOperationError(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+    } catch {
+      setNotice(`Ссылка для ${fullName} создана. Нажмите кнопку копирования рядом с ней.`);
+    }
+    setSimpleName(''); setSimpleGroupId(''); setOperationError('');
+    void onCreateSimpleLink(fullName, group.id).then(studentId => {
+      setSimpleLinks(current => {
+        const updated = current.map(item => item.id === link.id ? { ...item, studentId } : item);
+        localStorage.setItem(simpleLinksKey, JSON.stringify(updated));
+        return updated;
+      });
+    }).catch(error => setOperationError(`Ссылка создана, но ребёнок пока не прикреплён: ${error instanceof Error ? error.message : String(error)}`));
   }
   async function addStudent(event: FormEvent) { event.preventDefault(); if (!name.trim() || !groupIds.length) return; setBusy(true); setOperationError(''); try { await onCreateStudent(name, groupIds); setNotice(`Ученик ${name.trim()} добавлен, родительская ссылка сохранена`); setName(''); setGroupIds([]); } catch (error) { setOperationError(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); } }
   async function copy(token: string) { await navigator.clipboard.writeText(urlFor(token)); setNotice('Ссылка скопирована'); window.setTimeout(() => setNotice(''), 2200); }
@@ -121,7 +130,7 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
   async function createLink() { if (!selected.length) return; setBusy(true); try { const token = await onCreateLink(selected); await copy(token); setSelected([]); } finally { setBusy(false); } }
   return <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}><section className="dialog parent-access-dialog"><header><div><p className="eyebrow">РОДИТЕЛЬСКИЙ ДОСТУП</p><h2>Ученики и семейные ссылки</h2></div><button onClick={onClose}><X /></button></header>
     <div className="dialog-note">{syncing ? 'Находим детей в занятиях и создаём недостающие ссылки…' : 'Дети из списков групп и индивидуальных занятий добавляются автоматически. Для каждого ребёнка автоматически создаётся персональная ссылка.'}</div>
-    <form className="simple-group-link-form" onSubmit={createSimpleLink}><div><h3>Простая ссылка на расписание группы</h3><p>Введите ребёнка и выберите группу. Такая ссылка открывается без персональной базы Firebase.</p></div><label>Фамилия и имя<input list="simple-parent-students" value={simpleName} onChange={event => setSimpleName(event.target.value)} placeholder="Романенко Юлия" /></label><datalist id="simple-parent-students">{students.filter(student => student.active !== false).map(student => <option value={student.fullName} key={student.id} />)}</datalist><label>Группа<select value={simpleGroupId} onChange={event => setSimpleGroupId(event.target.value)}><option value="">Выберите группу</option>{groups.filter(group => (group.kind ?? 'group') === 'group').map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label><button className="primary-button" disabled={busy || !simpleName.trim() || !simpleGroupId}><Link2 size={16} />{busy ? 'Создаём…' : 'Создать и скопировать простую ссылку'}</button>{simpleLinks.length > 0 && <div className="simple-group-links">{simpleLinks.map(link => <article key={link.id}><div><strong>{link.fullName}</strong><small>{link.groupName}</small></div><button type="button" title="Скопировать" onClick={() => navigator.clipboard.writeText(simpleUrlFor(link))}><Copy size={16} /></button><button type="button" title="Открыть" onClick={() => window.open(simpleUrlFor(link), '_blank', 'noopener,noreferrer')}><ExternalLink size={16} /></button><button type="button" className="link-danger" title="Убрать из списка" onClick={() => saveSimpleLinks(simpleLinks.filter(item => item.id !== link.id))}><X size={16} /></button></article>)}</div>}</form>
+    <form className="simple-group-link-form" onSubmit={createSimpleLink}><div><h3>Простая ссылка на расписание группы</h3><p>Введите ребёнка и выберите группу. Такая ссылка открывается без персональной базы Firebase.</p></div><label>Фамилия и имя<input list="simple-parent-students" value={simpleName} onChange={event => setSimpleName(event.target.value)} placeholder="Романенко Юлия" /></label><datalist id="simple-parent-students">{students.filter(student => student.active !== false).map(student => <option value={student.fullName} key={student.id} />)}</datalist><label>Группа<select value={simpleGroupId} onChange={event => setSimpleGroupId(event.target.value)}><option value="">Выберите группу</option>{groups.filter(group => (group.kind ?? 'group') === 'group').map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label><button className="primary-button" disabled={!simpleName.trim() || !simpleGroupId}><Link2 size={16} />Создать и скопировать простую ссылку</button>{simpleLinks.length > 0 && <div className="simple-group-links">{simpleLinks.map(link => <article key={link.id}><div><strong>{link.fullName}</strong><small>{link.groupName}</small></div><button type="button" title="Скопировать" onClick={() => navigator.clipboard.writeText(simpleUrlFor(link))}><Copy size={16} /></button><button type="button" title="Открыть" onClick={() => window.open(simpleUrlFor(link), '_blank', 'noopener,noreferrer')}><ExternalLink size={16} /></button><button type="button" className="link-danger" title="Убрать из списка" onClick={() => saveSimpleLinks(simpleLinks.filter(item => item.id !== link.id))}><X size={16} /></button></article>)}</div>}</form>
     {syncError && <div className="form-error" role="alert">Не удалось обновить родительские ссылки: {syncError}</div>}
     {operationError && <div className="form-error" role="alert">Не удалось выполнить действие: {operationError}</div>}
     {notice && <div className="success-note">{notice}</div>}
