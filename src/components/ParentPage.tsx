@@ -40,7 +40,23 @@ export function ParentPage({ token }: { token: string }) {
     void load();
     return () => { active = false; };
   }, [token]);
-  useEffect(() => { if (!view?.active) return; setMonthData(undefined); getParentMonth(token, month).then(setMonthData).catch(() => setError('Не удалось загрузить выбранный месяц.')); }, [token, month, view]);
+  useEffect(() => {
+    if (!view?.active) return;
+    let active = true;
+    setMonthData(undefined);
+    const loadMonth = async () => {
+      for (let attempt = 0; attempt < 6 && active; attempt += 1) {
+        try {
+          const data = await getParentMonth(token, month);
+          if (data) { if (active) setMonthData(data); return; }
+        } catch { /* The selected link may still be rebuilding. */ }
+        await new Promise(resolve => window.setTimeout(resolve, 1200));
+      }
+      if (active) setMonthData(null);
+    };
+    void loadMonth();
+    return () => { active = false; };
+  }, [token, month, view]);
   const lessons = useMemo(() => (monthData?.lessons ?? []).filter(item => !studentId || item.studentIds.includes(studentId)), [monthData, studentId]);
   useEffect(() => {
     let active = true;

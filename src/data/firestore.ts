@@ -206,11 +206,32 @@ async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeo
   }
 }
 
+async function writeParentViewRoots(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
+  const months = parentMonthKeys();
+  const activeAccesses = accesses.filter(item => item.active);
+  const parallelLimit = 10;
+  for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
+    await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(access => {
+      const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
+      return setDoc(doc(db, 'parentViews', access.token), {
+        schoolId,
+        active: true,
+        students: selected.map(student => ({ id: student.id, fullName: student.fullName })),
+        availableMonths: months,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }));
+  }
+}
+
 export async function rebuildParentViewsForSchool(schoolId: string) {
   const data = await schoolData(schoolId);
+  const activeAccesses = data.accesses.filter(access => access.active);
+  // Every issued token must at least have a readable public root document.
+  // Duplicate tokens are still valid links, even though only one is shown in the UI.
+  await writeParentViewRoots(schoolId, data, activeAccesses);
   const seenStudents = new Set<string>();
-  const uniqueAccesses = data.accesses.filter(access => {
-    if (!access.active) return false;
+  const uniqueAccesses = activeAccesses.filter(access => {
     const key = [...access.studentIds].sort().join('|');
     if (seenStudents.has(key)) return false;
     seenStudents.add(key);
@@ -239,23 +260,31 @@ export async function ensureParentLinkForStudent(schoolId: string, fullName: str
   const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
   const cleanName = fullName.trim().replace(/\s+/g, ' ');
   let data = await schoolData(schoolId);
-  let student = data.students.find(item => item.active !== false && normalize(item.fullName) === normalize(cleanName));
+  let matchingStudents = data.students.filter(item => item.active !== false && normalize(item.fullName) === normalize(cleanName));
+  let student = matchingStudents.find(item => groupIds.some(groupId => item.groupIds.includes(groupId))) ?? matchingStudents[0];
   if (!student) {
     const reference = await createStudent(schoolId, cleanName, groupIds);
     student = { id: reference.id, schoolId, fullName: cleanName, groupIds, active: true } as Student;
+    matchingStudents = [student];
   } else if (groupIds.some(groupId => !student!.groupIds.includes(groupId))) {
     await attachStudentToGroups(student, groupIds);
     student = { ...student, groupIds: Array.from(new Set([...student.groupIds, ...groupIds])) };
   }
+  const matchingIds = new Set(matchingStudents.map(item => item.id));
   data = await schoolData(schoolId);
-  let access = data.accesses.find(item => item.active && item.studentIds.includes(student!.id));
-  if (!access) {
+  let matchingAccesses = data.accesses.filter(item => item.active && item.studentIds.some(id => matchingIds.has(id)));
+  if (!matchingAccesses.length) {
     const token = generateParentToken();
     const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    access = { id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess;
+    matchingAccesses = [{ id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess];
   }
-  await rebuildParentView(access);
-  return access.token;
+  await Promise.all(matchingAccesses.map(access => access.studentIds.length === 1 && access.studentIds[0] === student!.id
+    ? Promise.resolve()
+    : updateDoc(doc(db, 'parentAccess', access.id), { studentIds: [student!.id], updatedAt: serverTimestamp() })));
+  data = await schoolData(schoolId);
+  const normalizedAccesses = matchingAccesses.map(access => ({ ...access, studentIds: [student!.id] }));
+  await writeParentViews(schoolId, data, normalizedAccesses);
+  return normalizedAccesses[0].token;
 }
 
 export async function syncParentLinksFromSchedule(schoolId: string) {
