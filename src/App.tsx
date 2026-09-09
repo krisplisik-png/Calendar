@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -50,6 +50,7 @@ export function App() {
   const [parentSyncing, setParentSyncing] = useState(false);
   const [parentSyncError, setParentSyncError] = useState('');
   const parentSyncPromise = useRef<Promise<void> | null>(null);
+  const repairedParentRoots = useRef('');
   const [exportDialog, setExportDialog] = useState(false);
   const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
 
@@ -66,6 +67,16 @@ export function App() {
     const offParentAccess = ['owner', 'admin'].includes(userProfile.role) ? subscribeToParentAccess(userProfile.schoolId, setParentAccess, handleError) : () => undefined;
     return () => { offGroups(); offLessons(); offTeachers(); offStudents(); offParentAccess(); };
   }, [userProfile, firebaseUser]);
+  useEffect(() => {
+    if (!userProfile || !['owner', 'admin'].includes(userProfile.role)) return;
+    const signature = parentAccess.filter(item => item.active).map(item => `${item.id}:${item.token}`).sort().join('|');
+    if (!signature || repairedParentRoots.current === signature) return;
+    repairedParentRoots.current = signature;
+    void repairParentViewRootsForSchool(userProfile.schoolId).catch(error => {
+      repairedParentRoots.current = '';
+      setParentSyncError(humanizeFirebaseError(error));
+    });
+  }, [userProfile, parentAccess]);
 
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {

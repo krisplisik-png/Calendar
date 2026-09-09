@@ -218,16 +218,52 @@ async function schoolData(schoolId: string) {
   };
 }
 
+function parentViewContent(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, studentIds: string[], months: string[], availableMonths = months) {
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
+  const buildMonths = Array.from(new Set([currentMonth, ...months]));
+  // An active parent token remains the source of truth. Older duplicate student
+  // records may have been marked inactive during synchronization, but their
+  // already-issued family links must keep working until the link is disabled.
+  const viewStudents = data.students.map(student => studentIds.includes(student.id) ? { ...student, active: true } : student);
+  const selected = viewStudents.filter(student => studentIds.includes(student.id));
+  const lessonsByMonth = buildParentLessons(studentIds, viewStudents, data.groups, data.lessons, data.teachers, buildMonths);
+  return {
+    root: {
+      schoolId,
+      active: true,
+      students: selected.map(student => ({ id: student.id, fullName: student.fullName })),
+      availableMonths,
+      currentMonth,
+      currentLessons: lessonsByMonth[currentMonth] ?? [],
+      updatedAt: serverTimestamp(),
+    },
+    lessonsByMonth,
+    currentMonth,
+  };
+}
+
+async function createParentAccessWithView(schoolId: string, studentIds: string[], data: Awaited<ReturnType<typeof schoolData>>) {
+  const token = generateParentToken();
+  const accessReference = doc(collection(db, 'parentAccess'));
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
+  const { root, lessonsByMonth } = parentViewContent(schoolId, data, studentIds, [currentMonth], parentMonthKeys());
+  const batch = writeBatch(db);
+  batch.set(accessReference, { schoolId, token, studentIds, active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  batch.set(doc(db, 'parentViews', token), root);
+  batch.set(doc(db, 'parentViews', token, 'months', currentMonth), { month: currentMonth, lessons: lessonsByMonth[currentMonth] ?? [], updatedAt: serverTimestamp() });
+  await batch.commit();
+  return { id: accessReference.id, schoolId, token, studentIds, active: true } as ParentAccess;
+}
+
 async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[], months = parentMonthKeys()) {
   const activeAccesses = accesses.filter(item => item.active);
   const parallelLimit = 5;
   for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
     await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(async access => {
-      const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
-      const lessonsByMonth = buildParentLessons(access.studentIds, data.students, data.groups, data.lessons, data.teachers, months);
+      const { root, lessonsByMonth } = parentViewContent(schoolId, data, access.studentIds, months);
       // Create the public link first. A problem in one monthly document must
       // never roll back the link itself and make it look invalid.
-      await setDoc(doc(db, 'parentViews', access.token), { schoolId, active: true, students: selected.map(student => ({ id: student.id, fullName: student.fullName })), availableMonths: months, updatedAt: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, 'parentViews', access.token), root, { merge: true });
       const batch = writeBatch(db);
       months.forEach(month => batch.set(doc(db, 'parentViews', access.token, 'months', month), { month, lessons: lessonsByMonth[month], updatedAt: serverTimestamp() }));
       await batch.commit();
@@ -237,20 +273,27 @@ async function writeParentViews(schoolId: string, data: Awaited<ReturnType<typeo
 
 async function writeParentViewRoots(schoolId: string, data: Awaited<ReturnType<typeof schoolData>>, accesses: ParentAccess[]) {
   const months = parentMonthKeys();
-  const activeAccesses = accesses.filter(item => item.active);
+  const activeAccesses = accesses.filter(item => item.active && /^[A-Za-z0-9_-]{20,200}$/.test(item.token));
   const parallelLimit = 10;
+  let repaired = 0;
+  let firstError: unknown;
   for (let offset = 0; offset < activeAccesses.length; offset += parallelLimit) {
-    await Promise.all(activeAccesses.slice(offset, offset + parallelLimit).map(access => {
-      const selected = data.students.filter(student => access.studentIds.includes(student.id) && student.active !== false);
-      return setDoc(doc(db, 'parentViews', access.token), {
-        schoolId,
-        active: true,
-        students: selected.map(student => ({ id: student.id, fullName: student.fullName })),
-        availableMonths: months,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+    const results = await Promise.allSettled(activeAccesses.slice(offset, offset + parallelLimit).map(access => {
+      const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
+      const { root } = parentViewContent(schoolId, data, access.studentIds, [currentMonth], months);
+      return setDoc(doc(db, 'parentViews', access.token), root, { merge: true });
     }));
+    results.forEach(result => {
+      if (result.status === 'fulfilled') repaired += 1;
+      else if (!firstError) firstError = result.reason;
+    });
   }
+  if (activeAccesses.length && repaired === 0 && firstError) throw firstError;
+}
+
+export async function repairParentViewRootsForSchool(schoolId: string) {
+  const data = await schoolData(schoolId);
+  await writeParentViewRoots(schoolId, data, data.accesses.filter(access => access.active));
 }
 
 export async function rebuildParentViewsForSchool(schoolId: string) {
@@ -279,12 +322,9 @@ export async function rebuildParentView(access: ParentAccess) {
 }
 
 export async function createParentLink(schoolId: string, studentIds: string[]) {
-  const token = generateParentToken();
-  const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds, active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   const data = await schoolData(schoolId);
-  const access = { id: reference.id, schoolId, token, studentIds, active: true } as ParentAccess;
-  await writeParentViews(schoolId, data, [access]);
-  return token;
+  const access = await createParentAccessWithView(schoolId, studentIds, data);
+  return access.token;
 }
 
 export async function ensureParentLinkForStudent(schoolId: string, fullName: string, groupIds: string[]) {
@@ -302,14 +342,13 @@ export async function ensureParentLinkForStudent(schoolId: string, fullName: str
     student = { ...student, groupIds: Array.from(new Set([...student.groupIds, ...groupIds])) };
   }
   const matchingIds = new Set(matchingStudents.map(item => item.id));
+  const effectiveStudents = [...data.students.filter(item => !matchingIds.has(item.id)), student];
+  const effectiveData = { ...data, students: effectiveStudents };
   let matchingAccesses = data.accesses.filter(item => item.active && item.studentIds.some(id => matchingIds.has(id)));
   if (!matchingAccesses.length) {
-    const token = generateParentToken();
-    const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    matchingAccesses = [{ id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess];
+    matchingAccesses = [await createParentAccessWithView(schoolId, [student.id], effectiveData)];
   }
   const normalizedAccesses = matchingAccesses.map(access => ({ ...access, studentIds: [student!.id] }));
-  const effectiveStudents = [...data.students.filter(item => !matchingIds.has(item.id)), student];
   const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
   const lessons = buildParentLessons([student.id], effectiveStudents, data.groups, data.lessons, data.teachers, [currentMonth])[currentMonth];
   await Promise.all(normalizedAccesses.map(async (access, index) => {
@@ -319,7 +358,7 @@ export async function ensureParentLinkForStudent(schoolId: string, fullName: str
     }
     await setDoc(doc(db, 'parentViews', access.token), {
       schoolId, active: true, students: [{ id: student!.id, fullName: student!.fullName }],
-      availableMonths: parentMonthKeys(), updatedAt: serverTimestamp(),
+      availableMonths: parentMonthKeys(), currentMonth, currentLessons: lessons, updatedAt: serverTimestamp(),
     }, { merge: true });
     await setDoc(doc(db, 'parentViews', access.token, 'months', currentMonth), { month: currentMonth, lessons, updatedAt: serverTimestamp() });
   }));
@@ -388,9 +427,7 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
 
   for (const student of students.filter(item => item.active !== false && !duplicateStudentIds.has(item.id))) {
     if (normalizedAccesses.some(access => access.active && access.studentIds.includes(student.id))) continue;
-    const token = generateParentToken();
-    const reference = await addDoc(collection(db, 'parentAccess'), { schoolId, token, studentIds: [student.id], active: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    const createdAccess = { id: reference.id, schoolId, token, studentIds: [student.id], active: true } as ParentAccess;
+    const createdAccess = await createParentAccessWithView(schoolId, [student.id], { ...data, students });
     normalizedAccesses.push(createdAccess);
     linksCreated += 1;
   }
@@ -400,11 +437,15 @@ export async function syncParentLinksFromSchedule(schoolId: string) {
 
 export async function regenerateParentLink(access: ParentAccess) {
   const token = generateParentToken();
+  const data = await schoolData(access.schoolId);
+  const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').toFormat('yyyy-MM');
+  const { root, lessonsByMonth } = parentViewContent(access.schoolId, data, access.studentIds, [currentMonth], parentMonthKeys());
   const batch = writeBatch(db);
   batch.update(doc(db, 'parentAccess', access.id), { token, active: true, updatedAt: serverTimestamp() });
   batch.set(doc(db, 'parentViews', access.token), { active: false, updatedAt: serverTimestamp() }, { merge: true });
+  batch.set(doc(db, 'parentViews', token), root);
+  batch.set(doc(db, 'parentViews', token, 'months', currentMonth), { month: currentMonth, lessons: lessonsByMonth[currentMonth] ?? [], updatedAt: serverTimestamp() });
   await batch.commit();
-  await rebuildParentViewsForSchool(access.schoolId);
   return token;
 }
 
@@ -423,6 +464,7 @@ export async function getParentView(token: string): Promise<ParentView | null> {
     ...view,
     students: Array.isArray(view.students) ? view.students : [],
     availableMonths: Array.isArray(view.availableMonths) ? view.availableMonths : [],
+    currentLessons: Array.isArray(view.currentLessons) ? view.currentLessons : [],
   };
 }
 

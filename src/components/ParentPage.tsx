@@ -43,7 +43,10 @@ export function ParentPage({ token }: { token: string }) {
   useEffect(() => {
     if (!view?.active) return;
     let active = true;
-    setMonthData(undefined);
+    const rootFallback = view.currentMonth === month && Array.isArray(view.currentLessons)
+      ? { id: month, month, lessons: view.currentLessons } as ParentMonthView
+      : null;
+    setMonthData(rootFallback ?? undefined);
     const loadMonth = async () => {
       for (let attempt = 0; attempt < 6 && active; attempt += 1) {
         try {
@@ -52,7 +55,7 @@ export function ParentPage({ token }: { token: string }) {
         } catch { /* The selected link may still be rebuilding. */ }
         await new Promise(resolve => window.setTimeout(resolve, 1200));
       }
-      if (active) setMonthData(null);
+      if (active && !rootFallback) setMonthData(null);
     };
     void loadMonth();
     return () => { active = false; };

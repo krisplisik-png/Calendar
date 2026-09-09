@@ -125,6 +125,8 @@ export interface ParentView {
   active: boolean;
   students: ParentStudent[];
   availableMonths: string[];
+  currentMonth?: string;
+  currentLessons?: ParentLessonView[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
