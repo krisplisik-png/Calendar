@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, getParentAccessForSchool, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -248,6 +248,15 @@ export function App() {
     const existingAccess = parentAccess.find(item => item.active && item.studentIds.includes(student!.id));
     if (!existingAccess) await createParentLink(profile.schoolId, [student.id]);
   }
+  async function createMissingParentLink(fullName: string, groupIds: string[]) {
+    const token = await ensureParentLinkForStudent(profile.schoolId, fullName, groupIds);
+    const freshAccess = await getParentAccessForSchool(profile.schoolId);
+    const confirmed = freshAccess.find(item => item.active && item.token === token);
+    if (!confirmed) throw new Error('Firebase не подтвердил сохранение ссылки. Попробуйте нажать ещё раз.');
+    await rebuildParentView(confirmed);
+    setParentAccess(freshAccess);
+    return token;
+  }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
       await setGroupTeacher(group.id, teacherId);
@@ -355,7 +364,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={(fullName, groupIds) => ensureParentLinkForStudent(profile.schoolId, fullName, groupIds)} onRename={renameParentStudent} onPrepare={rebuildParentView} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={createMissingParentLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;

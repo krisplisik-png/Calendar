@@ -206,6 +206,11 @@ export function subscribeToParentAccess(schoolId: string, next: (items: ParentAc
   return onSnapshot(accessQuery, snapshot => next(snapshot.docs.map(item => mapDocument<ParentAccess>(item.data(), item.id))), error);
 }
 
+export async function getParentAccessForSchool(schoolId: string) {
+  const snapshot = await getDocs(query(collection(db, 'parentAccess'), where('schoolId', '==', schoolId)));
+  return snapshot.docs.map(item => mapDocument<ParentAccess>(item.data(), item.id));
+}
+
 async function schoolData(schoolId: string) {
   const scoped = (name: string) => getDocs(query(collection(db, name), where('schoolId', '==', schoolId)));
   const [studentDocs, groupDocs, lessonDocs, userDocs, accessDocs] = await Promise.all([scoped('students'), scoped('groups'), scoped('lessons'), scoped('users'), scoped('parentAccess')]);
