@@ -172,6 +172,35 @@ export async function updateScheduledStudentName(schoolId: string, groupId: stri
   return renamedIds;
 }
 
+export async function renameParentStudent(student: Student, fullName: string) {
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  const cleanName = fullName.trim().replace(/\s+/g, ' ');
+  if (!cleanName) throw new Error('Введите фамилию и имя ребёнка.');
+
+  await updateDoc(doc(db, 'students', student.id), { fullName: cleanName, updatedAt: serverTimestamp() });
+  const data = await schoolData(student.schoolId);
+  const updatedLessons = await Promise.all(data.lessons.map(async lesson => {
+    const roster = lesson.studentRoster ?? [];
+    let changed = false;
+    const studentRoster = roster.map(item => {
+      const isSameStudent = item.id === student.id
+        || (student.groupIds.includes(lesson.groupId) && normalize(item.fullName) === normalize(student.fullName));
+      if (!isSameStudent) return item;
+      changed = true;
+      return { ...item, id: student.id, fullName: cleanName };
+    });
+    if (changed) await updateLesson(lesson.id, { studentRoster });
+    return changed ? { ...lesson, studentRoster } : lesson;
+  }));
+  const updatedStudents = data.students.map(item => item.id === student.id ? { ...item, fullName: cleanName } : item);
+  const affectedAccesses = data.accesses.filter(access => access.active && access.studentIds.includes(student.id));
+  if (affectedAccesses.length) {
+    const currentMonth = DateTime.now().setZone('Asia/Yekaterinburg').startOf('month');
+    const visibleMonths = [0, 1].map(offset => currentMonth.plus({ months: offset }).toFormat('yyyy-MM'));
+    await writeParentViews(student.schoolId, { ...data, students: updatedStudents, lessons: updatedLessons }, affectedAccesses, visibleMonths);
+  }
+}
+
 export function subscribeToParentAccess(schoolId: string, next: (items: ParentAccess[]) => void, error: ErrorHandler): Unsubscribe {
   const accessQuery = query(collection(db, 'parentAccess'), where('schoolId', '==', schoolId));
   return onSnapshot(accessQuery, snapshot => next(snapshot.docs.map(item => mapDocument<ParentAccess>(item.data(), item.id))), error);

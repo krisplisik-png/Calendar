@@ -21,7 +21,7 @@ import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog'
 import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
+import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -344,7 +344,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={(fullName, groupIds) => ensureParentLinkForStudent(profile.schoolId, fullName, groupIds)} onPrepare={rebuildParentView} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={(fullName, groupIds) => ensureParentLinkForStudent(profile.schoolId, fullName, groupIds)} onRename={renameParentStudent} onPrepare={rebuildParentView} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
