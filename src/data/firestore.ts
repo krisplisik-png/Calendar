@@ -102,9 +102,11 @@ export async function publishPublicLesson(id: string, schoolId: string, lesson: 
   });
 }
 
-export async function getPublicGroupLessons(groupId: string) {
-  const snapshot = await getDocs(query(collection(db, 'publicLessons'), where('groupId', '==', groupId)));
-  return snapshot.docs.map(item => mapDocument<PublicGroupLesson>(item.data(), item.id));
+export function subscribeToPublicGroupLessons(groupId: string, next: (items: PublicGroupLesson[]) => void, error: ErrorHandler): Unsubscribe {
+  const lessonsQuery = query(collection(db, 'publicLessons'), where('groupId', '==', groupId));
+  return onSnapshot(lessonsQuery, snapshot => {
+    next(snapshot.docs.map(item => mapDocument<PublicGroupLesson>(item.data(), item.id)));
+  }, error);
 }
 
 export async function removePublicLesson(id: string) {

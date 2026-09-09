@@ -22,7 +22,7 @@ import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupParentPage } from './components/GroupParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createParentLink, createStudent, disableParentLink, ensureParentLinkForStudent, getParentAccessForSchool, rebuildParentView, rebuildParentViewsForSchool, regenerateParentLink, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, syncParentLinksFromSchedule, updateScheduledStudentName } from './data/firestore';
+import { attachStudentToGroups, createStudent, disableParentLink, rebuildParentView, rebuildParentViewsForSchool, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -130,7 +130,7 @@ export function App() {
     if (parentSyncPromise.current) return parentSyncPromise.current;
     setParentSyncing(true);
     setParentSyncError('');
-    const synchronization = syncParentLinksFromSchedule(profile.schoolId).then(() => undefined);
+    const synchronization = rebuildParentViewsForSchool(profile.schoolId).then(() => undefined);
     const operation = synchronization.catch(error => {
       setParentSyncError(humanizeFirebaseError(error));
       throw error;
@@ -141,7 +141,11 @@ export function App() {
     parentSyncPromise.current = operation;
     return operation;
   }
-  async function saveGroup(input: GroupInput) { if (editingGroup) await updateGroup(editingGroup.id, input); else await createGroup(profile.schoolId, input); await syncParents(); }
+  async function saveGroup(input: GroupInput) {
+    if (editingGroup) await updateGroup(editingGroup.id, input);
+    else await createGroup(profile.schoolId, input);
+    void refreshParentViews().catch(error => setDataError(humanizeFirebaseError(error)));
+  }
   async function deleteGroup(group: Group) {
     try {
       await removeGroup(group.id);
@@ -228,15 +232,11 @@ export function App() {
       await publishPublicLesson(created.id, profile.schoolId, payload, selectedGroup);
       await publishComments(created.id);
     }
-    const normalizeStudentName = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
-    const knownStudentNames = new Set(students.filter(student => student.active !== false).map(student => normalizeStudentName(student.fullName)));
-    const newStudentNames = Array.from(new Set(studentRoster.map(student => student.fullName))).filter(fullName => !knownStudentNames.has(normalizeStudentName(fullName)));
-    void (async () => {
-      for (const fullName of newStudentNames) await ensureParentLinkForStudent(profile.schoolId, fullName, [input.groupId]);
-      await syncParents();
-    })().catch(error => setDataError(humanizeFirebaseError(error)));
+    // Group links read the published lesson directly. Updating legacy parent
+    // snapshots remains best-effort and must never block saving a new child.
+    void refreshParentViews().catch(error => setDataError(humanizeFirebaseError(error)));
   }
-  async function addStudentManually(fullName: string, groupIds: string[], createAccess = true) {
+  async function addStudentManually(fullName: string, groupIds: string[]) {
     const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
     const cleanName = fullName.trim().replace(/\s+/g, ' ');
     let student = students.find(item => item.active !== false && normalize(item.fullName) === normalize(cleanName));
@@ -251,12 +251,7 @@ export function App() {
       const exists = roster.some(item => normalize(item.fullName) === normalize(cleanName));
       return exists ? Promise.resolve() : updateLesson(lesson.id, { studentRoster: [...roster, { id: student!.id, fullName: cleanName }] });
     }));
-    if (createAccess) await rosterUpdate;
-    else void rosterUpdate.catch(error => setDataError(humanizeFirebaseError(error)));
-    if (createAccess) {
-      const existingAccess = parentAccess.find(item => item.active && item.studentIds.includes(student!.id));
-      if (!existingAccess) await createParentLink(profile.schoolId, [student.id]);
-    }
+    void rosterUpdate.catch(error => setDataError(humanizeFirebaseError(error)));
     return student;
   }
   async function prepareSimpleGroupLink(fullName: string, groupId: string) {
@@ -265,18 +260,9 @@ export function App() {
     if ((group.kind ?? 'group') !== 'group') throw new Error('Простая ссылка создаётся только для групповых занятий.');
     const publication = Promise.all(lessons.filter(lesson => lesson.groupId === groupId).map(lesson => publishPublicLesson(lesson.id, profile.schoolId, lesson, group)));
     void publication.catch(error => setDataError(humanizeFirebaseError(error)));
-    const student = await addStudentManually(fullName, [groupId], false);
+    const student = await addStudentManually(fullName, [groupId]);
     await Promise.race([publication.catch(() => undefined), new Promise(resolve => window.setTimeout(resolve, 6000))]);
     return student.id;
-  }
-  async function createMissingParentLink(fullName: string, groupIds: string[]) {
-    const token = await ensureParentLinkForStudent(profile.schoolId, fullName, groupIds);
-    const freshAccess = await getParentAccessForSchool(profile.schoolId);
-    const confirmed = freshAccess.find(item => item.active && item.token === token);
-    if (!confirmed) throw new Error('Firebase не подтвердил сохранение ссылки. Попробуйте нажать ещё раз.');
-    await rebuildParentView(confirmed);
-    setParentAccess(freshAccess);
-    return token;
   }
   async function assignTeacher(group: Group, teacherId: string) {
     try {
@@ -385,7 +371,7 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={async (fullName, groupIds) => { await addStudentManually(fullName, groupIds); }} onCreateSimpleLink={prepareSimpleGroupLink} onCreateLink={studentIds => createParentLink(profile.schoolId, studentIds)} onCreateMissingLink={createMissingParentLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onRegenerate={regenerateParentLink} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateSimpleLink={prepareSimpleGroupLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
     {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;

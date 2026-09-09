@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { getPublicGroupLessons, getPublicLessonFeedback } from '../data/firestore';
+import { getPublicLessonFeedback, subscribeToPublicGroupLessons } from '../data/firestore';
 import { expandLessonOccurrences } from '../domain/recurrence';
 import type { Lesson, PublicGroupLesson } from '../types';
 
@@ -19,30 +19,15 @@ export function GroupParentPage({ groupId, studentId, studentName, groupName }: 
   const [error, setError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      for (let attempt = 0; attempt < 5 && active; attempt += 1) {
-        try {
-          const data = await getPublicGroupLessons(groupId);
-          if (!active) return;
-          if (!data.length && attempt < 4) {
-            await new Promise(resolve => window.setTimeout(resolve, 1200));
-            continue;
-          }
-          setLessons(data);
-          setError('');
-          return;
-        } catch (loadError) {
-          if (attempt === 4 && active) {
-            setLessons([]);
-            setError(loadError instanceof Error ? loadError.message : String(loadError));
-          }
-          await new Promise(resolve => window.setTimeout(resolve, 1200));
-        }
-      }
-    };
-    void load();
-    return () => { active = false; };
+    setLessons(undefined);
+    setError('');
+    return subscribeToPublicGroupLessons(groupId, data => {
+      setLessons(data);
+      setError('');
+    }, loadError => {
+      setLessons([]);
+      setError(loadError.message);
+    });
   }, [groupId]);
 
   const occurrences = useMemo(() => (lessons ?? []).flatMap(lesson =>
