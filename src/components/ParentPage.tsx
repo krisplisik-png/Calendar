@@ -4,6 +4,26 @@ import { DateTime } from 'luxon';
 import { getParentMonth, getParentView, getPublicLessonFeedback } from '../data/firestore';
 import type { ParentLessonView, ParentMonthView, ParentView } from '../types';
 
+interface ParentLessonFeedback {
+  comment: string;
+  homeworkDone?: boolean;
+  homeworkAssigned?: boolean;
+  homework?: string;
+}
+
+async function loadParentLessonFeedback(lesson: ParentLessonView, studentId: string): Promise<ParentLessonFeedback> {
+  const commentKey = lesson.commentKeyByStudentId?.[studentId] ?? '__general';
+  const personal = await getPublicLessonFeedback(lesson.lessonId, lesson.occurrenceDate, commentKey);
+  if (commentKey === '__general') return personal;
+  const general = await getPublicLessonFeedback(lesson.lessonId, lesson.occurrenceDate, '__general');
+  return {
+    comment: personal.comment || general.comment,
+    homeworkDone: personal.homeworkDone,
+    homeworkAssigned: personal.homeworkAssigned ?? general.homeworkAssigned,
+    homework: personal.homework ?? general.homework,
+  };
+}
+
 export function ParentPage({ token }: { token: string }) {
   const [view, setView] = useState<ParentView | null>();
   const [monthData, setMonthData] = useState<ParentMonthView | null>();
@@ -12,7 +32,7 @@ export function ParentPage({ token }: { token: string }) {
   const [selectedLesson, setSelectedLesson] = useState<ParentLessonView | null>(null);
   const [parentComment, setParentComment] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
-  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, { comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string }>>({});
+  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, ParentLessonFeedback>>({});
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -68,12 +88,11 @@ export function ParentPage({ token }: { token: string }) {
     if (!studentId || !lessons.length) { setFeedbackByLesson({}); return () => { active = false; }; }
     setSummaryLoading(true);
     Promise.all(lessons.map(async lesson => {
-      const commentKey = lesson.commentKeyByStudentId?.[studentId] ?? '__general';
-      return [lesson.id, await getPublicLessonFeedback(lesson.lessonId, lesson.occurrenceDate, commentKey)] as const;
+      return [lesson.id, await loadParentLessonFeedback(lesson, studentId)] as const;
     })).then(items => { if (active) setFeedbackByLesson(Object.fromEntries(items)); }).catch(() => { if (active) setFeedbackByLesson({}); }).finally(() => { if (active) setSummaryLoading(false); });
     return () => { active = false; };
   }, [lessons, studentId]);
-  useEffect(() => { if (!selectedLesson) { setParentComment(''); return; } const cached = feedbackByLesson[selectedLesson.id]; if (cached) { setParentComment(cached.comment); setCommentLoading(false); return; } const commentKey = selectedLesson.commentKeyByStudentId?.[studentId] ?? '__general'; setCommentLoading(true); getPublicLessonFeedback(selectedLesson.lessonId, selectedLesson.occurrenceDate, commentKey).then(feedback => setParentComment(feedback.comment)).catch(() => setParentComment('')).finally(() => setCommentLoading(false)); }, [selectedLesson, studentId, feedbackByLesson]);
+  useEffect(() => { if (!selectedLesson) { setParentComment(''); return; } const cached = feedbackByLesson[selectedLesson.id]; if (cached) { setParentComment(cached.comment); setCommentLoading(false); return; } setCommentLoading(true); loadParentLessonFeedback(selectedLesson, studentId).then(feedback => setParentComment(feedback.comment)).catch(() => setParentComment('')).finally(() => setCommentLoading(false)); }, [selectedLesson, studentId, feedbackByLesson]);
   const lessonsByDate = useMemo(() => new Map(Array.from(new Set(lessons.map(item => item.date))).map(date => [date, lessons.filter(item => item.date === date)])), [lessons]);
   const cursor = DateTime.fromFormat(month, 'yyyy-MM', { zone: 'Asia/Yekaterinburg' });
   const firstCell = cursor.startOf('month').minus({ days: cursor.startOf('month').weekday - 1 });

@@ -12,11 +12,11 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonProgress, savePublicLessonComment, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
+import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonProgress, savePublicLessonComment, savePublicLessonHomework, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
-import { HOMEWORK_DATE_KEY, homeworkForOccurrence, isRecurringLesson } from './domain/lessonProgress';
+import { HOMEWORK_DATE_KEY, homeworkForOccurrence, isRecurringLesson, nextLessonOccurrenceDate } from './domain/lessonProgress';
 import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
 import { ParentAccessDialog } from './components/ParentAccessDialog';
@@ -170,29 +170,41 @@ export function App() {
     const { students: lessonStudents, parentComment, homeworkAssigned, homework, notes, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
     const recurring = isRecurringLesson(input);
+    const outgoingHomeworkAssigned = homeworkAssigned && Boolean(homework.trim());
+    const homeworkTargetDate = nextLessonOccurrenceDate(input, statusDate) ?? statusDate;
+    const currentHomework = editingLesson ? homeworkForOccurrence(editingLesson, statusDate) : '';
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
-    const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
+    const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkAssigned ? student.homeworkDone : false, homeworkAssigned: student.homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
     const attendanceCompletedDates = lessonStudents.some(student => student.fullName.trim())
       ? Array.from(new Set([...(editingLesson?.attendanceCompletedDates ?? []), statusDate])).sort()
       : (editingLesson?.attendanceCompletedDates ?? []);
     const commentsForDate = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
-    commentsForDate[HOMEWORK_DATE_KEY] = homework.trim();
-    const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
+    commentsForDate[HOMEWORK_DATE_KEY] = currentHomework;
+    const homeworkComments = homeworkTargetDate === statusDate
+      ? commentsForDate
+      : { ...(editingLesson?.parentCommentByDate?.[homeworkTargetDate] ?? {}) };
+    homeworkComments[HOMEWORK_DATE_KEY] = homework.trim();
+    const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate, [homeworkTargetDate]: homeworkComments };
     const changedComments = Object.entries(commentsForDate).filter(([commentKey]) => commentKey !== HOMEWORK_DATE_KEY);
-    const publishComments = async (lessonId: string) => {
+    const currentHomeworkAssigned = Object.values(dateStatuses).some(status => status.homeworkAssigned === true)
+      || (!Object.keys(dateStatuses).length && Boolean(currentHomework));
+    const publishCurrentProgress = async (lessonId: string) => {
       if (!changedComments.length) return;
       const writes = Promise.all(changedComments.map(([commentKey, comment]) => {
         const isGeneral = commentKey === '__general';
-        return savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, isGeneral ? undefined : dateStatuses[commentKey]?.homeworkDone, isGeneral ? homeworkAssigned : dateStatuses[commentKey]?.homeworkAssigned, homework);
+        return savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, isGeneral ? undefined : dateStatuses[commentKey]?.homeworkDone, isGeneral ? currentHomeworkAssigned : dateStatuses[commentKey]?.homeworkAssigned, currentHomework);
       }));
       await Promise.race([
         writes,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
       ]);
     };
-    const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, {
+    const publishNextHomework = (lessonId: string) => Promise.all(['__general', ...studentRoster.map(student => student.id)].map(commentKey =>
+      savePublicLessonHomework(profile.schoolId, lessonId, homeworkTargetDate, commentKey, outgoingHomeworkAssigned, homework),
+    ));
+    const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, homeworkTargetDate, {
       homework,
       notes,
       studentRoster,
@@ -224,14 +236,15 @@ export function App() {
     };
     if (teacherMode && editingLesson) {
       await saveProgress(editingLesson.id);
-      await publishComments(editingLesson.id);
+      await publishCurrentProgress(editingLesson.id);
+      await publishNextHomework(editingLesson.id);
       return;
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
     const selectedGroup = groups.find(group => group.id === input.groupId);
     const lessonPayload = {
       ...lessonFields,
-      homework: recurring ? '' : homework,
+      homework: recurring || !outgoingHomeworkAssigned ? '' : homework,
       notes,
       ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
     };
@@ -240,12 +253,14 @@ export function App() {
       await saveProgress(editingLesson.id);
       await propagateCorrectedStudentNames();
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster, parentCommentByDate }, selectedGroup);
-      await publishComments(editingLesson.id);
+      await publishCurrentProgress(editingLesson.id);
+      await publishNextHomework(editingLesson.id);
     } else {
       const newLesson = { ...lessonPayload, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate };
       const created = await createLesson(profile.schoolId, newLesson);
       await publishPublicLesson(created.id, profile.schoolId, newLesson, selectedGroup);
-      await publishComments(created.id);
+      await publishCurrentProgress(created.id);
+      await publishNextHomework(created.id);
     }
     // Group links read the published lesson directly. Updating legacy parent
     // snapshots remains best-effort and must never block saving a new child.

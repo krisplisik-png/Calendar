@@ -69,7 +69,7 @@ export async function updateLesson(id: string, input: Partial<Omit<Lesson, 'id' 
   return updateDoc(doc(db, 'lessons', id), { ...withoutUndefined(input), updatedAt: serverTimestamp() });
 }
 
-export async function saveLessonProgress(id: string, occurrenceDate: string, input: {
+export async function saveLessonProgress(id: string, occurrenceDate: string, homeworkTargetDate: string, input: {
   homework: string;
   notes: string;
   studentRoster: NonNullable<Lesson['studentRoster']>;
@@ -77,14 +77,20 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, inp
   comments: NonNullable<Lesson['parentCommentByDate']>[string];
 }) {
   const reference = doc(db, 'lessons', id);
-  await updateDoc(reference, {
+  const comments = { ...input.comments };
+  if (homeworkTargetDate === occurrenceDate) comments[HOMEWORK_DATE_KEY] = input.homework.trim();
+  const progressUpdate: DocumentData = {
     notes: input.notes,
     studentRoster: input.studentRoster,
     [`studentStatusByDate.${occurrenceDate}`]: input.statuses,
     attendanceCompletedDates: arrayUnion(occurrenceDate),
-    [`parentCommentByDate.${occurrenceDate}`]: input.comments,
+    [`parentCommentByDate.${occurrenceDate}`]: comments,
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (homeworkTargetDate !== occurrenceDate) {
+    progressUpdate[`parentCommentByDate.${homeworkTargetDate}.${HOMEWORK_DATE_KEY}`] = input.homework.trim();
+  }
+  await updateDoc(reference, progressUpdate);
 
   // Do not close the lesson dialog until Firestore returns the values that were
   // just saved. This catches rejected or incomplete attendance writes instead
@@ -92,7 +98,7 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, inp
   const savedSnapshot = await getDoc(reference);
   const savedLesson = savedSnapshot.exists() ? savedSnapshot.data() as Lesson : undefined;
   const savedStatuses = savedLesson?.studentStatusByDate?.[occurrenceDate];
-  const savedHomework = savedLesson?.parentCommentByDate?.[occurrenceDate]?.[HOMEWORK_DATE_KEY];
+  const savedHomework = savedLesson?.parentCommentByDate?.[homeworkTargetDate]?.[HOMEWORK_DATE_KEY];
   const statusWasSaved = Object.entries(input.statuses).every(([studentId, expected]) => {
     const actual = savedStatuses?.[studentId];
     return actual?.attended === expected.attended
@@ -152,6 +158,11 @@ export async function removePublicLesson(id: string) {
 export async function savePublicLessonComment(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, comment: string, homeworkDone?: boolean, homeworkAssigned?: boolean, homework?: string) {
   const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
   return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, comment: comment.trim(), ...(homeworkDone === undefined ? {} : { homeworkDone }), ...(homeworkAssigned === undefined ? {} : { homeworkAssigned }), ...(homework === undefined ? {} : { homework: homework.trim() }), updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function savePublicLessonHomework(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, homeworkAssigned: boolean, homework: string) {
+  const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
+  return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, homeworkAssigned, homework: homework.trim(), updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
