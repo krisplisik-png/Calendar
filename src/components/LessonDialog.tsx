@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import type { Group, GroupKind, Lesson } from '../types';
+import { HOMEWORK_DATE_KEY, homeworkForOccurrence } from '../domain/lessonProgress';
 
 export interface StudentStatusInput {
   id: string;
@@ -44,10 +45,11 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
     const hasSavedStatuses = Object.keys(statuses).length > 0;
-    const homeworkAssigned = Object.values(statuses).some(status => status.homeworkAssigned === true) || (!hasSavedStatuses && Boolean(lesson?.homework?.trim()));
     const comments = lesson?.parentCommentByDate?.[statusDate] ?? {};
+    const dateHomework = lesson ? homeworkForOccurrence(lesson, statusDate) : '';
+    const homeworkAssigned = Object.values(statuses).some(status => status.homeworkAssigned === true) || (!hasSavedStatuses && Boolean(dateHomework.trim()));
     const savedStatusEntries = Object.values(statuses);
-    const savedCommentEntries = Object.entries(comments).filter(([key]) => key !== '__general').map(([, comment]) => comment);
+    const savedCommentEntries = Object.entries(comments).filter(([key]) => !['__general', HOMEWORK_DATE_KEY].includes(key)).map(([, comment]) => comment);
     const rosterStudents = (lesson?.studentRoster ?? []).map((student, index) => {
       // Older group lessons could receive new roster IDs during synchronization.
       // Fall back to the matching row position once, then the next save migrates
@@ -81,7 +83,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
       : rosterStudents;
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
-      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: lesson.homework ?? '', notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned,
+      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: dateHomework, notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned,
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
       students: formStudents,
       billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),

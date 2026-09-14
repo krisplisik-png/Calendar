@@ -12,7 +12,7 @@ export function ParentPage({ token }: { token: string }) {
   const [selectedLesson, setSelectedLesson] = useState<ParentLessonView | null>(null);
   const [parentComment, setParentComment] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
-  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, { comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean }>>({});
+  const [feedbackByLesson, setFeedbackByLesson] = useState<Record<string, { comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string }>>({});
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -85,6 +85,7 @@ export function ParentPage({ token }: { token: string }) {
     if (feedback?.homeworkAssigned === true) { summary.total += 1; if (feedback.homeworkDone) summary.done += 1; }
     return summary;
   }, { done: 0, total: 0 });
+  const selectedFeedback = selectedLesson ? feedbackByLesson[selectedLesson.id] : undefined;
 
   if (view === undefined) return <main className="parent-state">Загружаем расписание…</main>;
   if (error || !view || !view.active) return <main className="parent-state"><div><h1>Ссылка недействительна</h1><p>{error || 'Попросите администратора школы прислать новую ссылку.'}</p></div></main>;
@@ -100,6 +101,6 @@ export function ParentPage({ token }: { token: string }) {
       {monthData === undefined && <div className="parent-loading">Загружаем месяц…</div>}
       {monthFinished && <div className="parent-homework-summary"><div><span>Итоги месяца</span><strong>Домашние задания</strong></div><b>{summaryLoading ? 'Считаем…' : `${homeworkSummary.done} из ${homeworkSummary.total} выполнено`}</b></div>}
     </section>
-    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}{selectedLesson.homework && <div><dt>Домашнее задание</dt><dd>{selectedLesson.homework}</dd></div>}<div className="parent-comment"><dt>Комментарий учителя</dt><dd>{commentLoading ? 'Загружаем…' : parentComment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
+    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}<div><dt>Домашнее задание</dt><dd>{summaryLoading && !selectedFeedback ? 'Загружаем…' : selectedFeedback?.homeworkAssigned === false ? 'Не задавалось' : selectedFeedback?.homework || 'Домашнее задание пока не указано.'}{selectedFeedback?.homeworkAssigned === true && <small className={selectedFeedback.homeworkDone ? 'homework-done' : 'homework-missing'}>{selectedFeedback.homeworkDone ? 'Выполнено' : 'Не выполнено'}</small>}</dd></div><div className="parent-comment"><dt>Комментарий учителя</dt><dd>{commentLoading ? 'Загружаем…' : parentComment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
   </main>;
 }

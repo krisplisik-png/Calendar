@@ -16,6 +16,7 @@ import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLess
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
+import { HOMEWORK_DATE_KEY, homeworkForOccurrence, isRecurringLesson } from './domain/lessonProgress';
 import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
 import { ParentAccessDialog } from './components/ParentAccessDialog';
@@ -86,7 +87,8 @@ export function App() {
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {
     const group = groupMap.get(item.groupId);
-    const text = `${group?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''} ${item.room ? `кабинет ${item.room}` : ''}`.toLocaleLowerCase('ru');
+    const datedHomework = Object.values(item.parentCommentByDate ?? {}).map(comments => comments[HOMEWORK_DATE_KEY] ?? '').join(' ');
+    const text = `${group?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''} ${datedHomework} ${item.room ? `кабинет ${item.room}` : ''}`.toLocaleLowerCase('ru');
     return (!selectedGroups.size || selectedGroups.has(item.groupId)) && text.includes(search.toLocaleLowerCase('ru'));
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
@@ -165,8 +167,9 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const { students: lessonStudents, parentComment, homeworkAssigned, ...lessonFields } = input;
+    const { students: lessonStudents, parentComment, homeworkAssigned, homework, notes, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
+    const recurring = isRecurringLesson(input);
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: homeworkAssigned ? student.homeworkDone : false, homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
@@ -175,20 +178,23 @@ export function App() {
       : (editingLesson?.attendanceCompletedDates ?? []);
     const commentsForDate = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
+    commentsForDate[HOMEWORK_DATE_KEY] = homework.trim();
     const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
-    const previousComments = editingLesson?.parentCommentByDate?.[statusDate] ?? {};
-    const changedComments = Object.entries(commentsForDate).filter(([commentKey, comment]) => commentKey !== '__general' || comment || previousComments[commentKey]);
+    const changedComments = Object.entries(commentsForDate).filter(([commentKey]) => commentKey !== HOMEWORK_DATE_KEY);
     const publishComments = async (lessonId: string) => {
       if (!changedComments.length) return;
-      const writes = Promise.all(changedComments.map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkDone, commentKey === '__general' ? undefined : dateStatuses[commentKey]?.homeworkAssigned, input.homework)));
+      const writes = Promise.all(changedComments.map(([commentKey, comment]) => {
+        const isGeneral = commentKey === '__general';
+        return savePublicLessonComment(profile.schoolId, lessonId, statusDate, commentKey, comment, isGeneral ? undefined : dateStatuses[commentKey]?.homeworkDone, isGeneral ? homeworkAssigned : dateStatuses[commentKey]?.homeworkAssigned, homework);
+      }));
       await Promise.race([
         writes,
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
       ]);
     };
     const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, {
-      homework: input.homework,
-      notes: input.notes,
+      homework,
+      notes,
       studentRoster,
       statuses: dateStatuses,
       comments: commentsForDate,
@@ -225,13 +231,15 @@ export function App() {
     const selectedGroup = groups.find(group => group.id === input.groupId);
     const lessonPayload = {
       ...lessonFields,
+      homework: recurring ? '' : homework,
+      notes,
       ...(assignedTeacherId ? { teacherId: assignedTeacherId } : {}),
     };
     if (editingLesson) {
       await updateLesson(editingLesson.id, lessonPayload);
       await saveProgress(editingLesson.id);
       await propagateCorrectedStudentNames();
-      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster }, selectedGroup);
+      await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster, parentCommentByDate }, selectedGroup);
       await publishComments(editingLesson.id);
     } else {
       const newLesson = { ...lessonPayload, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate };
@@ -294,14 +302,22 @@ export function App() {
             const cloneInput = Object.fromEntries(Object.entries({
               groupId: source.groupId, teacherId: substituteTeacherId, substituteForTeacherId: source.teacherId ?? '', substitutionDate: date,
               date, startTime: source.startTime, endTime: source.endTime, course: source.course ?? '', unit: source.unit ?? '', lesson: source.lesson ?? '', topic: source.topic ?? '',
-              homework: source.homework ?? '', notes: source.notes ?? '', room: source.room ?? '', minAge: source.minAge, maxAge: source.maxAge,
+              homework: homeworkForOccurrence(source, date), notes: source.notes ?? '', room: source.room ?? '', minAge: source.minAge, maxAge: source.maxAge,
               billingType: source.billingType ?? 'subscription', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], studentRoster: source.studentRoster ?? [],
               studentStatusByDate: statusForDate ? { [date]: statusForDate } : {},
               parentCommentByDate: source.parentCommentByDate?.[date] ? { [date]: source.parentCommentByDate[date] } : {},
             }).filter(([, value]) => value !== undefined)) as unknown as Omit<Lesson, 'id' | 'schoolId' | 'createdAt' | 'updatedAt'>;
             const created = await createLesson(profile.schoolId, cloneInput);
             await publishPublicLesson(created.id, profile.schoolId, cloneInput, group);
-            await Promise.all(Object.entries(source.parentCommentByDate?.[date] ?? {}).map(([commentKey, comment]) => savePublicLessonComment(profile.schoolId, created.id, date, commentKey, comment)));
+            const occurrenceHomework = homeworkForOccurrence(source, date);
+            const occurrenceComments = source.parentCommentByDate?.[date] ?? {};
+            const occurrenceStatuses = source.studentStatusByDate?.[date] ?? {};
+            const generalHomeworkAssigned = Object.values(occurrenceStatuses).some(status => status.homeworkAssigned === true)
+              || (!Object.keys(occurrenceStatuses).length && Boolean(occurrenceHomework));
+            await Promise.all(Object.entries(occurrenceComments).filter(([commentKey]) => commentKey !== HOMEWORK_DATE_KEY).map(([commentKey, comment]) => {
+              const isGeneral = commentKey === '__general';
+              return savePublicLessonComment(profile.schoolId, created.id, date, commentKey, comment, isGeneral ? undefined : occurrenceStatuses[commentKey]?.homeworkDone, isGeneral ? generalHomeworkAssigned : occurrenceStatuses[commentKey]?.homeworkAssigned, occurrenceHomework);
+            }));
             assignedCount += 1;
           }
           const excludedDates = Array.from(new Set([...(source.excludedDates ?? []), ...dates])).sort();

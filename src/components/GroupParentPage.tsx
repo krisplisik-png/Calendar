@@ -42,13 +42,19 @@ export function GroupParentPage({ groupId, studentId, studentName, groupName }: 
   useEffect(() => {
     if (!selected) { setFeedback({ comment: '' }); return; }
     let active = true;
+    setFeedback({ comment: '' });
     setFeedbackLoading(true);
     const load = async () => {
       const personal = studentId
         ? await getPublicLessonFeedback(selected.lesson.id, selected.occurrenceDate, studentId)
         : { comment: '' };
-      const general = personal.comment ? { comment: '' } : await getPublicLessonFeedback(selected.lesson.id, selected.occurrenceDate, '__general');
-      if (active) setFeedback({ ...personal, comment: personal.comment || general.comment });
+      const general = await getPublicLessonFeedback(selected.lesson.id, selected.occurrenceDate, '__general');
+      if (active) setFeedback({
+        comment: personal.comment || general.comment,
+        homeworkDone: personal.homeworkDone,
+        homeworkAssigned: personal.homeworkAssigned ?? general.homeworkAssigned,
+        homework: personal.homework ?? general.homework,
+      });
     };
     load().catch(() => { if (active) setFeedback({ comment: '' }); }).finally(() => { if (active) setFeedbackLoading(false); });
     return () => { active = false; };
@@ -66,6 +72,6 @@ export function GroupParentPage({ groupId, studentId, studentName, groupName }: 
       })}</div>
       {!occurrences.length && <div className="simple-parent-empty">{error ? `Не удалось загрузить расписание: ${error}` : 'В этом месяце занятий группы пока нет.'}</div>}
     </section>
-    {selected && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelected(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selected.lesson.course || selected.lesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelected(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selected.occurrenceDate).setLocale('ru').toFormat('d LLLL yyyy')} · {selected.lesson.startTime}–{selected.lesson.endTime}</dd></div>{selected.lesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selected.lesson.room}</dd></div>}<div><dt>Группа</dt><dd>{selected.lesson.groupName || displayedGroupName}</dd></div>{selected.lesson.teacherName && <div><dt>Преподаватель</dt><dd>{selected.lesson.teacherName}</dd></div>}{selected.lesson.unit && <div><dt>Раздел</dt><dd>{selected.lesson.unit}</dd></div>}{selected.lesson.lesson && <div><dt>Урок</dt><dd>{selected.lesson.lesson}</dd></div>}{selected.lesson.topic && <div><dt>Тема</dt><dd>{selected.lesson.topic}</dd></div>}<div><dt>Домашнее задание</dt><dd>{feedback.homeworkAssigned === false ? 'Не задавалось' : feedback.homework || selected.lesson.homework || 'Домашнее задание пока не указано.'}{feedback.homeworkAssigned === true && <small className={feedback.homeworkDone ? 'homework-done' : 'homework-missing'}>{feedback.homeworkDone ? 'Выполнено' : 'Не выполнено'}</small>}</dd></div><div className="parent-comment"><dt>Комментарий учителя</dt><dd>{feedbackLoading ? 'Загружаем…' : feedback.comment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelected(null)}>Закрыть</button></footer></section></div>}
+    {selected && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelected(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selected.lesson.course || selected.lesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelected(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selected.occurrenceDate).setLocale('ru').toFormat('d LLLL yyyy')} · {selected.lesson.startTime}–{selected.lesson.endTime}</dd></div>{selected.lesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selected.lesson.room}</dd></div>}<div><dt>Группа</dt><dd>{selected.lesson.groupName || displayedGroupName}</dd></div>{selected.lesson.teacherName && <div><dt>Преподаватель</dt><dd>{selected.lesson.teacherName}</dd></div>}{selected.lesson.unit && <div><dt>Раздел</dt><dd>{selected.lesson.unit}</dd></div>}{selected.lesson.lesson && <div><dt>Урок</dt><dd>{selected.lesson.lesson}</dd></div>}{selected.lesson.topic && <div><dt>Тема</dt><dd>{selected.lesson.topic}</dd></div>}<div><dt>Домашнее задание</dt><dd>{feedback.homeworkAssigned === false ? 'Не задавалось' : feedback.homework || (selected.lesson.recurrenceWeekdays?.length && selected.lesson.recurrenceUntil ? '' : selected.lesson.homework) || 'Домашнее задание пока не указано.'}{feedback.homeworkAssigned === true && <small className={feedback.homeworkDone ? 'homework-done' : 'homework-missing'}>{feedback.homeworkDone ? 'Выполнено' : 'Не выполнено'}</small>}</dd></div><div className="parent-comment"><dt>Комментарий учителя</dt><dd>{feedbackLoading ? 'Загружаем…' : feedback.comment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelected(null)}>Закрыть</button></footer></section></div>}
   </main>;
 }

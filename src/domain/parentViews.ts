@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import type { Group, Lesson, ParentLessonView, SchoolUser, Student } from '../types';
 import { expandLessonOccurrences } from './recurrence';
+import { homeworkForOccurrence } from './lessonProgress';
 
 export function generateParentToken(): string {
   const bytes = new Uint8Array(32);
@@ -28,6 +29,7 @@ export function buildParentLessons(
     for (const occurrence of expandLessonOccurrences(item)) {
       const month = occurrence.occurrenceDate.slice(0, 7);
       if (!result[month]) continue;
+      const occurrenceHomework = homeworkForOccurrence(item, occurrence.occurrenceDate);
       const publicLesson: ParentLessonView = {
         id: `${item.id}__${occurrence.occurrenceDate}`,
         lessonId: item.id,
@@ -43,7 +45,7 @@ export function buildParentLessons(
         ...(item.unit ? { unit: item.unit } : {}),
         ...(item.lesson ? { lesson: item.lesson } : {}),
         ...(item.topic ? { topic: item.topic } : {}),
-        ...(item.homework ? { homework: item.homework } : {}),
+        ...(occurrenceHomework ? { homework: occurrenceHomework } : {}),
         ...(item.room ? { room: item.room } : {}),
         commentKeyByStudentId: Object.fromEntries(linkedStudents.map(student => {
           const rosterStudent = item.studentRoster?.find(candidate => candidate.fullName.trim().toLocaleLowerCase('ru') === student.fullName.trim().toLocaleLowerCase('ru'));

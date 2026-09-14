@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { DateTime } from 'luxon';
 import type { Group, Lesson, ParentAccess, ParentMonthView, ParentView, Payment, PublicGroupLesson, SchoolUser, Student } from '../types';
 import { buildParentLessons, generateParentToken, parentMonthKeys } from '../domain/parentViews';
+import { HOMEWORK_DATE_KEY } from '../domain/lessonProgress';
 
 type Unsubscribe = () => void;
 type ErrorHandler = (error: FirestoreError) => void;
@@ -77,7 +78,6 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, inp
 }) {
   const reference = doc(db, 'lessons', id);
   await updateDoc(reference, {
-    homework: input.homework,
     notes: input.notes,
     studentRoster: input.studentRoster,
     [`studentStatusByDate.${occurrenceDate}`]: input.statuses,
@@ -92,13 +92,14 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, inp
   const savedSnapshot = await getDoc(reference);
   const savedLesson = savedSnapshot.exists() ? savedSnapshot.data() as Lesson : undefined;
   const savedStatuses = savedLesson?.studentStatusByDate?.[occurrenceDate];
+  const savedHomework = savedLesson?.parentCommentByDate?.[occurrenceDate]?.[HOMEWORK_DATE_KEY];
   const statusWasSaved = Object.entries(input.statuses).every(([studentId, expected]) => {
     const actual = savedStatuses?.[studentId];
     return actual?.attended === expected.attended
       && actual?.homeworkDone === expected.homeworkDone
       && actual?.homeworkAssigned === expected.homeworkAssigned;
   });
-  if (!savedLesson || !statusWasSaved || savedLesson.homework !== input.homework) {
+  if (!savedLesson || !statusWasSaved || savedHomework !== input.homework.trim()) {
     throw new Error('Firebase не подтвердил сохранение посещаемости и домашнего задания. Попробуйте ещё раз.');
   }
 }
@@ -131,7 +132,7 @@ export async function publishPublicLesson(id: string, schoolId: string, lesson: 
     ...(lesson.unit ? { unit: lesson.unit } : {}),
     ...(lesson.lesson ? { lesson: lesson.lesson } : {}),
     ...(lesson.topic ? { topic: lesson.topic } : {}),
-    ...(lesson.homework ? { homework: lesson.homework } : {}),
+    homework: lesson.homework ?? '',
     ...(lesson.room ? { room: lesson.room } : {}),
     updatedAt: serverTimestamp(),
   });
