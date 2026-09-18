@@ -69,8 +69,7 @@ export async function updateLesson(id: string, input: Partial<Omit<Lesson, 'id' 
   return updateDoc(doc(db, 'lessons', id), { ...withoutUndefined(input), updatedAt: serverTimestamp() });
 }
 
-export async function saveLessonProgress(id: string, occurrenceDate: string, homeworkTargetDate: string, input: {
-  homework: string;
+export async function saveLessonProgress(id: string, occurrenceDate: string, input: {
   notes: string;
   studentRoster: NonNullable<Lesson['studentRoster']>;
   statuses: NonNullable<Lesson['studentStatusByDate']>[string];
@@ -78,7 +77,6 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, hom
 }) {
   const reference = doc(db, 'lessons', id);
   const comments = { ...input.comments };
-  if (homeworkTargetDate === occurrenceDate) comments[HOMEWORK_DATE_KEY] = input.homework.trim();
   const progressUpdate: DocumentData = {
     notes: input.notes,
     studentRoster: input.studentRoster,
@@ -87,9 +85,6 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, hom
     [`parentCommentByDate.${occurrenceDate}`]: comments,
     updatedAt: serverTimestamp(),
   };
-  if (homeworkTargetDate !== occurrenceDate) {
-    progressUpdate[`parentCommentByDate.${homeworkTargetDate}.${HOMEWORK_DATE_KEY}`] = input.homework.trim();
-  }
   await updateDoc(reference, progressUpdate);
 
   // Do not close the lesson dialog until Firestore returns the values that were
@@ -98,15 +93,31 @@ export async function saveLessonProgress(id: string, occurrenceDate: string, hom
   const savedSnapshot = await getDoc(reference);
   const savedLesson = savedSnapshot.exists() ? savedSnapshot.data() as Lesson : undefined;
   const savedStatuses = savedLesson?.studentStatusByDate?.[occurrenceDate];
-  const savedHomework = savedLesson?.parentCommentByDate?.[homeworkTargetDate]?.[HOMEWORK_DATE_KEY];
+  const savedHomework = savedLesson?.parentCommentByDate?.[occurrenceDate]?.[HOMEWORK_DATE_KEY] ?? '';
   const statusWasSaved = Object.entries(input.statuses).every(([studentId, expected]) => {
     const actual = savedStatuses?.[studentId];
     return actual?.attended === expected.attended
       && actual?.homeworkDone === expected.homeworkDone
       && actual?.homeworkAssigned === expected.homeworkAssigned;
   });
-  if (!savedLesson || !statusWasSaved || savedHomework !== input.homework.trim()) {
+  if (!savedLesson || !statusWasSaved || savedHomework !== (input.comments[HOMEWORK_DATE_KEY] ?? '')) {
     throw new Error('Firebase не подтвердил сохранение посещаемости и домашнего задания. Попробуйте ещё раз.');
+  }
+}
+
+export async function saveLessonHomework(id: string, occurrenceDate: string, homework: string) {
+  const reference = doc(db, 'lessons', id);
+  const cleanHomework = homework.trim();
+  await updateDoc(reference, {
+    [`parentCommentByDate.${occurrenceDate}.${HOMEWORK_DATE_KEY}`]: cleanHomework,
+    updatedAt: serverTimestamp(),
+  });
+  const savedSnapshot = await getDoc(reference);
+  const savedHomework = savedSnapshot.exists()
+    ? (savedSnapshot.data() as Lesson).parentCommentByDate?.[occurrenceDate]?.[HOMEWORK_DATE_KEY]
+    : undefined;
+  if (savedHomework !== cleanHomework) {
+    throw new Error('Firebase не подтвердил сохранение домашнего задания на следующее занятие. Попробуйте ещё раз.');
   }
 }
 
@@ -165,15 +176,34 @@ export async function savePublicLessonHomework(schoolId: string, lessonId: strin
   return setDoc(reference, { schoolId, lessonId, occurrenceDate, commentKey, homeworkAssigned, homework: homework.trim(), updatedAt: serverTimestamp() }, { merge: true });
 }
 
+export async function savePublicNextLessonHomework(schoolId: string, lessonId: string, occurrenceDate: string, commentKey: string, nextHomeworkDate: string | undefined, homeworkAssigned: boolean, homework: string) {
+  const reference = doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`);
+  return setDoc(reference, {
+    schoolId, lessonId, occurrenceDate, commentKey,
+    nextHomeworkDate: nextHomeworkDate ?? '',
+    nextHomeworkAssigned: Boolean(nextHomeworkDate) && homeworkAssigned,
+    nextHomework: nextHomeworkDate ? homework.trim() : '',
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
 export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
   return (await getPublicLessonFeedback(lessonId, occurrenceDate, commentKey)).comment;
 }
 
-export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string }> {
+export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string; nextHomeworkDate?: string; nextHomeworkAssigned?: boolean; nextHomework?: string }> {
   const snapshot = await getDoc(doc(db, 'publicLessonComments', `${lessonId}__${occurrenceDate}__${commentKey}`));
   if (!snapshot.exists()) return { comment: '' };
   const data = snapshot.data();
-  return { comment: String(data.comment ?? ''), ...(typeof data.homeworkDone === 'boolean' ? { homeworkDone: data.homeworkDone } : {}), ...(typeof data.homeworkAssigned === 'boolean' ? { homeworkAssigned: data.homeworkAssigned } : {}), ...(typeof data.homework === 'string' ? { homework: data.homework } : {}) };
+  return {
+    comment: String(data.comment ?? ''),
+    ...(typeof data.homeworkDone === 'boolean' ? { homeworkDone: data.homeworkDone } : {}),
+    ...(typeof data.homeworkAssigned === 'boolean' ? { homeworkAssigned: data.homeworkAssigned } : {}),
+    ...(typeof data.homework === 'string' ? { homework: data.homework } : {}),
+    ...(typeof data.nextHomeworkDate === 'string' ? { nextHomeworkDate: data.nextHomeworkDate } : {}),
+    ...(typeof data.nextHomeworkAssigned === 'boolean' ? { nextHomeworkAssigned: data.nextHomeworkAssigned } : {}),
+    ...(typeof data.nextHomework === 'string' ? { nextHomework: data.nextHomework } : {}),
+  };
 }
 
 export function subscribeToPayments(schoolId: string, month: string, next: (items: Payment[]) => void, error: ErrorHandler): Unsubscribe {

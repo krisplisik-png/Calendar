@@ -12,11 +12,11 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonProgress, savePublicLessonComment, savePublicLessonHomework, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
+import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonHomework, saveLessonProgress, savePublicLessonComment, savePublicLessonHomework, savePublicNextLessonHomework, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
-import { HOMEWORK_DATE_KEY, homeworkForOccurrence, isRecurringLesson, nextLessonOccurrenceDate } from './domain/lessonProgress';
+import { HOMEWORK_DATE_KEY, homeworkForGroupOccurrence, homeworkForOccurrence, isRecurringLesson, nextGroupLessonOccurrence, nextLessonOccurrenceDate } from './domain/lessonProgress';
 import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
 import { ParentAccessDialog } from './components/ParentAccessDialog';
@@ -171,8 +171,14 @@ export function App() {
     const statusDate = editingOccurrenceDate ?? input.date;
     const recurring = isRecurringLesson(input);
     const outgoingHomeworkAssigned = homeworkAssigned && Boolean(homework.trim());
-    const homeworkTargetDate = nextLessonOccurrenceDate(input, statusDate) ?? statusDate;
-    const currentHomework = editingLesson ? homeworkForOccurrence(editingLesson, statusDate) : '';
+    const nextGroupOccurrence = editingLesson
+      ? nextGroupLessonOccurrence(lessons, input.groupId, statusDate, editingLesson.id, input.startTime)
+      : undefined;
+    const nextHomeworkDate = nextGroupOccurrence?.occurrenceDate ?? nextLessonOccurrenceDate(input, statusDate);
+    const homeworkTargetDate = nextHomeworkDate ?? statusDate;
+    const currentHomework = editingLesson
+      ? homeworkForGroupOccurrence(lessons, input.groupId, statusDate, editingLesson.id)
+      : '';
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkAssigned ? student.homeworkDone : false, homeworkAssigned: student.homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };
@@ -182,11 +188,12 @@ export function App() {
     const commentsForDate = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, student.parentComment.trim()]));
     commentsForDate.__general = parentComment.trim();
     commentsForDate[HOMEWORK_DATE_KEY] = currentHomework;
-    const homeworkComments = homeworkTargetDate === statusDate
-      ? commentsForDate
-      : { ...(editingLesson?.parentCommentByDate?.[homeworkTargetDate] ?? {}) };
-    homeworkComments[HOMEWORK_DATE_KEY] = homework.trim();
-    const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate, [homeworkTargetDate]: homeworkComments };
+    const parentCommentByDate = { ...(editingLesson?.parentCommentByDate ?? {}), [statusDate]: commentsForDate };
+    if (!editingLesson) {
+      const homeworkComments = homeworkTargetDate === statusDate ? commentsForDate : {};
+      homeworkComments[HOMEWORK_DATE_KEY] = homework.trim();
+      parentCommentByDate[homeworkTargetDate] = homeworkComments;
+    }
     const changedComments = Object.entries(commentsForDate).filter(([commentKey]) => commentKey !== HOMEWORK_DATE_KEY);
     const currentHomeworkAssigned = Object.values(dateStatuses).some(status => status.homeworkAssigned === true)
       || (!Object.keys(dateStatuses).length && Boolean(currentHomework));
@@ -201,16 +208,18 @@ export function App() {
         new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Firebase слишком долго сохраняет комментарий. Проверьте интернет и попробуйте ещё раз.')), 15000)),
       ]);
     };
-    const publishNextHomework = (lessonId: string) => Promise.all(['__general', ...studentRoster.map(student => student.id)].map(commentKey =>
-      savePublicLessonHomework(profile.schoolId, lessonId, homeworkTargetDate, commentKey, outgoingHomeworkAssigned, homework),
-    ));
-    const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, homeworkTargetDate, {
-      homework,
+    const homeworkRecipientIds = Array.from(new Set([...studentRoster.map(student => student.id), ...(nextGroupOccurrence?.lesson.studentRoster ?? []).map(student => student.id)]));
+    const publishNextHomework = (sourceLessonId: string, targetLessonId = sourceLessonId) => Promise.all(['__general', ...homeworkRecipientIds].flatMap(commentKey => [
+      savePublicLessonHomework(profile.schoolId, targetLessonId, homeworkTargetDate, commentKey, outgoingHomeworkAssigned, homework),
+      savePublicNextLessonHomework(profile.schoolId, sourceLessonId, statusDate, commentKey, nextHomeworkDate, outgoingHomeworkAssigned, homework),
+    ]));
+    const saveProgress = (lessonId: string) => saveLessonProgress(lessonId, statusDate, {
       notes,
       studentRoster,
       statuses: dateStatuses,
       comments: commentsForDate,
     });
+    const saveNextHomework = (sourceLessonId: string) => saveLessonHomework(nextGroupOccurrence?.lesson.id ?? sourceLessonId, homeworkTargetDate, homework);
     const propagateCorrectedStudentNames = async () => {
       if (!canManage || !editingLesson) return;
       const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
@@ -236,8 +245,9 @@ export function App() {
     };
     if (teacherMode && editingLesson) {
       await saveProgress(editingLesson.id);
+      await saveNextHomework(editingLesson.id);
       await publishCurrentProgress(editingLesson.id);
-      await publishNextHomework(editingLesson.id);
+      await publishNextHomework(editingLesson.id, nextGroupOccurrence?.lesson.id);
       return;
     }
     const assignedTeacherId = groups.find(group => group.id === input.groupId)?.teacherId;
@@ -251,13 +261,15 @@ export function App() {
     if (editingLesson) {
       await updateLesson(editingLesson.id, lessonPayload);
       await saveProgress(editingLesson.id);
+      await saveNextHomework(editingLesson.id);
       await propagateCorrectedStudentNames();
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster, parentCommentByDate }, selectedGroup);
       await publishCurrentProgress(editingLesson.id);
-      await publishNextHomework(editingLesson.id);
+      await publishNextHomework(editingLesson.id, nextGroupOccurrence?.lesson.id);
     } else {
       const newLesson = { ...lessonPayload, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate };
       const created = await createLesson(profile.schoolId, newLesson);
+      await saveNextHomework(created.id);
       await publishPublicLesson(created.id, profile.schoolId, newLesson, selectedGroup);
       await publishCurrentProgress(created.id);
       await publishNextHomework(created.id);
@@ -411,6 +423,6 @@ export function App() {
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
     {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateSimpleLink={prepareSimpleGroupLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
-    {lessonDialog && <LessonDialog groups={groups} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
+    {lessonDialog && <LessonDialog groups={groups} allLessons={lessons} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
 }

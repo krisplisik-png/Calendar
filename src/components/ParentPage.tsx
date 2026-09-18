@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { getParentMonth, getParentView, getPublicLessonFeedback } from '../data/firestore';
+import { summarizeHomeworkResults } from '../domain/lessonProgress';
 import type { ParentLessonView, ParentMonthView, ParentView } from '../types';
 
 interface ParentLessonFeedback {
@@ -9,6 +10,9 @@ interface ParentLessonFeedback {
   homeworkDone?: boolean;
   homeworkAssigned?: boolean;
   homework?: string;
+  nextHomeworkDate?: string;
+  nextHomeworkAssigned?: boolean;
+  nextHomework?: string;
 }
 
 async function loadParentLessonFeedback(lesson: ParentLessonView, studentId: string): Promise<ParentLessonFeedback> {
@@ -21,6 +25,9 @@ async function loadParentLessonFeedback(lesson: ParentLessonView, studentId: str
     homeworkDone: personal.homeworkDone,
     homeworkAssigned: personal.homeworkAssigned ?? general.homeworkAssigned,
     homework: personal.homework ?? general.homework,
+    nextHomeworkDate: personal.nextHomeworkDate ?? general.nextHomeworkDate,
+    nextHomeworkAssigned: personal.nextHomeworkAssigned ?? general.nextHomeworkAssigned,
+    nextHomework: personal.nextHomework ?? general.nextHomework,
   };
 }
 
@@ -99,11 +106,7 @@ export function ParentPage({ token }: { token: string }) {
   const cells = Array.from({ length: 42 }, (_, index) => firstCell.plus({ days: index }));
   const student = view?.students.find(item => item.id === studentId);
   const monthFinished = DateTime.now().setZone('Asia/Yekaterinburg').startOf('day') >= cursor.endOf('month').startOf('day');
-  const homeworkSummary = lessons.reduce((summary, lesson) => {
-    const feedback = feedbackByLesson[lesson.id];
-    if (feedback?.homeworkAssigned === true) { summary.total += 1; if (feedback.homeworkDone) summary.done += 1; }
-    return summary;
-  }, { done: 0, total: 0 });
+  const homeworkSummary = summarizeHomeworkResults(lessons.map(lesson => feedbackByLesson[lesson.id]));
   const selectedFeedback = selectedLesson ? feedbackByLesson[selectedLesson.id] : undefined;
 
   if (view === undefined) return <main className="parent-state">Загружаем расписание…</main>;
@@ -120,6 +123,6 @@ export function ParentPage({ token }: { token: string }) {
       {monthData === undefined && <div className="parent-loading">Загружаем месяц…</div>}
       {monthFinished && <div className="parent-homework-summary"><div><span>Итоги месяца</span><strong>Домашние задания</strong></div><b>{summaryLoading ? 'Считаем…' : `${homeworkSummary.done} из ${homeworkSummary.total} выполнено`}</b></div>}
     </section>
-    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}<div><dt>Домашнее задание</dt><dd>{summaryLoading && !selectedFeedback ? 'Загружаем…' : selectedFeedback?.homeworkAssigned === false ? 'Не задавалось' : selectedFeedback?.homework || 'Домашнее задание пока не указано.'}{selectedFeedback?.homeworkAssigned === true && <small className={selectedFeedback.homeworkDone ? 'homework-done' : 'homework-missing'}>{selectedFeedback.homeworkDone ? 'Выполнено' : 'Не выполнено'}</small>}</dd></div><div className="parent-comment"><dt>Комментарий учителя</dt><dd>{commentLoading ? 'Загружаем…' : parentComment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
+    {selectedLesson && <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && setSelectedLesson(null)}><section className="dialog parent-lesson-dialog"><header><div><p className="eyebrow">ЗАНЯТИЕ</p><h2>{selectedLesson.course || selectedLesson.groupName || 'Занятие'}</h2></div><button onClick={() => setSelectedLesson(null)}><X /></button></header><dl><div><dt>Дата и время</dt><dd>{DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL yyyy')} · {selectedLesson.startTime}–{selectedLesson.endTime}</dd></div>{selectedLesson.room && <div><dt>Кабинет</dt><dd>Кабинет {selectedLesson.room}</dd></div>}{selectedLesson.groupName && <div><dt>Группа</dt><dd>{selectedLesson.groupName}</dd></div>}{selectedLesson.teacherName && <div><dt>Преподаватель</dt><dd>{selectedLesson.teacherName}</dd></div>}{selectedLesson.topic && <div><dt>Тема</dt><dd>{selectedLesson.topic}</dd></div>}<div><dt>{selectedFeedback?.nextHomeworkDate ? `Домашнее задание на ${DateTime.fromISO(selectedFeedback.nextHomeworkDate).setLocale('ru').toFormat('d LLLL')}` : 'Домашнее задание на следующее занятие'}</dt><dd>{summaryLoading && !selectedFeedback ? 'Загружаем…' : selectedFeedback?.nextHomeworkAssigned === false ? 'Не задавалось' : selectedFeedback?.nextHomework || 'Домашнее задание пока не указано.'}{selectedFeedback?.homeworkAssigned === true && <small className={selectedFeedback.homeworkDone ? 'homework-done' : 'homework-missing'}>Домашнее к {DateTime.fromISO(selectedLesson.date).setLocale('ru').toFormat('d LLLL')}: {selectedFeedback.homeworkDone ? 'выполнено' : 'не выполнено'}</small>}</dd></div><div className="parent-comment"><dt>Комментарий учителя</dt><dd>{commentLoading ? 'Загружаем…' : parentComment || 'Комментариев к этому уроку пока нет.'}</dd></div></dl><footer><button className="primary-button" onClick={() => setSelectedLesson(null)}>Закрыть</button></footer></section></div>}
   </main>;
 }

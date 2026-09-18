@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { HOMEWORK_DATE_KEY, homeworkForOccurrence, nextLessonOccurrenceDate } from './lessonProgress';
+import type { Lesson } from '../types';
+import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, nextGroupLessonOccurrence, nextLessonOccurrenceDate, summarizeHomeworkResults } from './lessonProgress';
 
 describe('lesson occurrence homework', () => {
   it('keeps homework only on the saved date of a recurring lesson', () => {
@@ -47,5 +48,41 @@ describe('lesson occurrence homework', () => {
       recurrenceUntil: '2026-10-01',
       excludedDates: ['2026-09-17'],
     }, '2026-09-14')).toBe('2026-09-21');
+  });
+
+  it('finds the next group lesson even when weekdays are stored in separate series', () => {
+    const lessons = [
+      { id: 'tuesday', groupId: 'gg2', date: '2026-09-01', startTime: '16:00', recurrenceWeekdays: [2], recurrenceUntil: '2026-09-30' },
+      { id: 'thursday', groupId: 'gg2', date: '2026-09-03', startTime: '16:00', recurrenceWeekdays: [4], recurrenceUntil: '2026-09-30' },
+    ] as Lesson[];
+
+    const next = nextGroupLessonOccurrence(lessons, 'gg2', '2026-09-15', 'tuesday', '16:00');
+    expect(next?.lesson.id).toBe('thursday');
+    expect(next?.occurrenceDate).toBe('2026-09-17');
+  });
+
+  it('finds homework saved by a previous series for the next group lesson', () => {
+    const lessons = [
+      { id: 'source', groupId: 'gg2', date: '2026-09-15', startTime: '16:00', recurrenceWeekdays: [2], recurrenceUntil: '2026-09-30', parentCommentByDate: { '2026-09-17': { [HOMEWORK_DATE_KEY]: 'Страница 12' } } },
+      { id: 'target', groupId: 'gg2', date: '2026-09-17', startTime: '16:00', recurrenceWeekdays: [4], recurrenceUntil: '2026-09-30' },
+    ] as Lesson[];
+
+    expect(homeworkForGroupOccurrence(lessons, 'gg2', '2026-09-17', 'target')).toBe('Страница 12');
+  });
+});
+
+describe('homework grading and totals', () => {
+  it('allows grading when homework text was added after an old not-assigned status', () => {
+    expect(homeworkCanBeGraded('Page 12', { homeworkAssigned: false, homeworkDone: false })).toBe(true);
+    expect(homeworkCanBeGraded('', { homeworkAssigned: false, homeworkDone: false })).toBe(false);
+  });
+
+  it('counts only assigned homework in the parent result', () => {
+    expect(summarizeHomeworkResults([
+      { homeworkAssigned: true, homeworkDone: true },
+      { homeworkAssigned: true, homeworkDone: false },
+      { homeworkAssigned: false, homeworkDone: false },
+      undefined,
+    ])).toEqual({ done: 1, total: 2 });
   });
 });

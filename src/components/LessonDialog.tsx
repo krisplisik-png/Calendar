@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { DateTime } from 'luxon';
 import type { Group, GroupKind, Lesson } from '../types';
-import { HOMEWORK_DATE_KEY, homeworkForOccurrence, nextLessonOccurrenceDate } from '../domain/lessonProgress';
+import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, nextGroupLessonOccurrence, nextLessonOccurrenceDate } from '../domain/lessonProgress';
 
 export interface StudentStatusInput {
   id: string;
@@ -27,8 +27,9 @@ export interface LessonInput {
 
 const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', room: '', parentComment: '', homeworkAssigned: false, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
 
-export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teacherMode = false, onClose, onSave, onDelete }: {
+export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, initialDate, teacherMode = false, onClose, onSave, onDelete }: {
   groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
+  allLessons?: Lesson[];
   teacherMode?: boolean;
   onSave: (value: LessonInput) => Promise<void>;
   onDelete?: (scope: 'occurrence' | 'series') => Promise<void>;
@@ -47,10 +48,13 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
     const statusDate = occurrenceDate ?? lesson?.date ?? initialDate ?? empty().date;
     const statuses = lesson?.studentStatusByDate?.[statusDate] ?? {};
     const comments = lesson?.parentCommentByDate?.[statusDate] ?? {};
-    const dateHomework = lesson ? homeworkForOccurrence(lesson, statusDate) : '';
-    const nextHomeworkDate = lesson ? nextLessonOccurrenceDate(lesson, statusDate) : undefined;
-    const nextHomework = lesson && nextHomeworkDate ? homeworkForOccurrence(lesson, nextHomeworkDate) : dateHomework;
-    const currentHomeworkAssigned = Boolean(dateHomework.trim());
+    const availableLessons = lesson && allLessons.length ? allLessons : lesson ? [lesson] : [];
+    const dateHomework = lesson ? homeworkForGroupOccurrence(availableLessons, lesson.groupId, statusDate, lesson.id) : '';
+    const nextGroupOccurrence = lesson ? nextGroupLessonOccurrence(availableLessons, lesson.groupId, statusDate, lesson.id, lesson.startTime) : undefined;
+    const nextHomeworkDate = nextGroupOccurrence?.occurrenceDate ?? (lesson ? nextLessonOccurrenceDate(lesson, statusDate) : undefined);
+    const nextHomework = lesson && nextHomeworkDate
+      ? homeworkForGroupOccurrence(availableLessons, lesson.groupId, nextHomeworkDate, nextGroupOccurrence?.lesson.id ?? lesson.id)
+      : dateHomework;
     const nextHomeworkAssigned = Boolean(nextHomework.trim());
     setCurrentHomework(dateHomework);
     const savedStatusEntries = Object.values(statuses);
@@ -65,7 +69,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
         fullName: student.fullName,
         attended: savedStatus?.attended ?? false,
         homeworkDone: savedStatus?.homeworkDone ?? false,
-        homeworkAssigned: savedStatus?.homeworkAssigned ?? (savedStatus?.homeworkDone === true || currentHomeworkAssigned),
+        homeworkAssigned: homeworkCanBeGraded(dateHomework, savedStatus),
         parentComment: comments[student.id] ?? savedCommentEntries[index] ?? '',
       };
     });
@@ -81,7 +85,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
             fullName: existingGroup.name,
             attended: savedStatus?.attended ?? false,
             homeworkDone: savedStatus?.homeworkDone ?? false,
-            homeworkAssigned: savedStatus?.homeworkAssigned ?? (savedStatus?.homeworkDone === true || currentHomeworkAssigned),
+            homeworkAssigned: homeworkCanBeGraded(dateHomework, savedStatus),
             parentComment: comments[stableId] ?? (previousStudent ? comments[previousStudent.id] : '') ?? '',
           }];
         })()
@@ -94,7 +98,7 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
       billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),
     } : { ...empty(), groupId: '', date: initialDate ?? empty().date });
     setRepeats(Boolean(lesson?.recurrenceWeekdays?.length && lesson.recurrenceUntil));
-  }, [lesson, groups, initialDate, occurrenceDate]);
+  }, [lesson, groups, allLessons, initialDate, occurrenceDate]);
   const availableParticipants = groups.filter(group => (group.kind ?? 'group') === selectedKind);
   const kindLabels: Array<{ kind: GroupKind; label: string }> = [
     { kind: 'individual', label: 'Индивидуал' },
@@ -162,7 +166,8 @@ export function LessonDialog({ groups, lesson, occurrenceDate, initialDate, teac
   }
   const selectedRecurringOccurrence = Boolean(repeats && occurrenceDate && occurrenceDate !== value.date);
   const displayedDate = selectedRecurringOccurrence ? occurrenceDate! : value.date;
-  const nextHomeworkDate = repeats ? nextLessonOccurrenceDate(value, displayedDate) : undefined;
+  const nextGroupOccurrence = lesson ? nextGroupLessonOccurrence(allLessons.length ? allLessons : [lesson], value.groupId, displayedDate, lesson.id, value.startTime) : undefined;
+  const nextHomeworkDate = nextGroupOccurrence?.occurrenceDate ?? (repeats ? nextLessonOccurrenceDate(value, displayedDate) : undefined);
   const nextHomeworkDateLabel = nextHomeworkDate
     ? DateTime.fromISO(nextHomeworkDate).setLocale('ru').toFormat('d LLLL')
     : '';
