@@ -6,7 +6,7 @@ import { db } from '../lib/firebase';
 import { DateTime } from 'luxon';
 import type { Group, Lesson, ParentAccess, ParentMonthView, ParentView, Payment, PublicGroupLesson, SchoolUser, Student } from '../types';
 import { buildParentLessons, generateParentToken, parentMonthKeys } from '../domain/parentViews';
-import { HOMEWORK_DATE_KEY } from '../domain/lessonProgress';
+import { HOMEWORK_DATE_KEY, homeworkFromPublicFeedback } from '../domain/lessonProgress';
 
 type Unsubscribe = () => void;
 type ErrorHandler = (error: FirestoreError) => void;
@@ -189,6 +189,12 @@ export async function savePublicNextLessonHomework(schoolId: string, lessonId: s
 
 export async function getPublicLessonComment(lessonId: string, occurrenceDate: string, commentKey: string) {
   return (await getPublicLessonFeedback(lessonId, occurrenceDate, commentKey)).comment;
+}
+
+export async function getPublicLessonHomework(lessonId: string, occurrenceDate: string, commentKeys: string[]): Promise<string> {
+  const keys = Array.from(new Set(['__general', ...commentKeys]));
+  const feedback = await Promise.all(keys.map(commentKey => getPublicLessonFeedback(lessonId, occurrenceDate, commentKey)));
+  return feedback.map(homeworkFromPublicFeedback).find(Boolean) ?? '';
 }
 
 export async function getPublicLessonFeedback(lessonId: string, occurrenceDate: string, commentKey: string): Promise<{ comment: string; homeworkDone?: boolean; homeworkAssigned?: boolean; homework?: string; nextHomeworkDate?: string; nextHomeworkAssigned?: boolean; nextHomework?: string }> {

@@ -98,6 +98,10 @@ export function homeworkCanBeGraded(
     || savedStatus?.homeworkDone === true;
 }
 
+export function homeworkFromPublicFeedback(feedback: { homework?: string } | undefined): string {
+  return typeof feedback?.homework === 'string' ? feedback.homework.trim() : '';
+}
+
 export function summarizeHomeworkResults(
   feedback: Array<{ homeworkAssigned?: boolean; homeworkDone?: boolean } | undefined>,
 ): { done: number; total: number } {

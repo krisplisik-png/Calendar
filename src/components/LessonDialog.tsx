@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { DateTime } from 'luxon';
 import type { Group, GroupKind, Lesson } from '../types';
+import { getPublicLessonHomework } from '../data/firestore';
 import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, nextGroupLessonOccurrence, nextLessonOccurrenceDate } from '../domain/lessonProgress';
 
 export interface StudentStatusInput {
@@ -16,7 +17,7 @@ export interface StudentStatusInput {
 export interface LessonInput {
   groupId: string; date: string; startTime: string; endTime: string;
   minAge?: number; maxAge?: number;
-  course: string; unit: string; lesson: string; topic: string; homework: string; notes: string;
+  course: string; unit: string; lesson: string; topic: string; homework: string; currentHomework: string; notes: string;
   room: '' | '1' | '2';
   parentComment: string;
   homeworkAssigned: boolean;
@@ -25,7 +26,7 @@ export interface LessonInput {
   billingType: 'subscription' | 'single';
 }
 
-const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', notes: '', room: '', parentComment: '', homeworkAssigned: false, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
+const empty = (): LessonInput => ({ groupId: '', date: new Date().toISOString().slice(0, 10), startTime: '10:00', endTime: '11:00', course: '', unit: '', lesson: '', topic: '', homework: '', currentHomework: '', notes: '', room: '', parentComment: '', homeworkAssigned: false, recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], students: [], billingType: 'single' });
 
 export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, initialDate, teacherMode = false, onClose, onSave, onDelete }: {
   groups: Group[]; lesson: Lesson | null; occurrenceDate?: string | null; initialDate?: string; onClose: () => void;
@@ -42,6 +43,7 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
   const [repeats, setRepeats] = useState(false);
   const [currentHomework, setCurrentHomework] = useState('');
   useEffect(() => {
+    let active = true;
     const existingGroup = lesson ? groups.find(group => group.id === lesson.groupId) : undefined;
     const initialKind = existingGroup?.kind ?? (lesson ? 'group' : 'individual');
     setSelectedKind(initialKind);
@@ -92,12 +94,24 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
       : rosterStudents;
     setValue(lesson ? {
       groupId: lesson.groupId, date: lesson.date, startTime: lesson.startTime, endTime: lesson.endTime, minAge: lesson.minAge, maxAge: lesson.maxAge,
-      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: nextHomework, notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned: nextHomeworkAssigned,
+      course: lesson.course ?? '', unit: lesson.unit ?? '', lesson: lesson.lesson ?? '', topic: lesson.topic ?? '', homework: nextHomework, currentHomework: dateHomework, notes: lesson.notes ?? '', room: lesson.room ?? '', parentComment: lesson.parentCommentByDate?.[statusDate]?.__general ?? '', homeworkAssigned: nextHomeworkAssigned,
       recurrenceWeekdays: lesson.recurrenceWeekdays ?? [], recurrenceUntil: lesson.recurrenceUntil ?? '', excludedDates: lesson.excludedDates ?? [],
       students: formStudents,
       billingType: lesson.billingType ?? (lesson.recurrenceWeekdays?.length ? 'subscription' : 'single'),
     } : { ...empty(), groupId: '', date: initialDate ?? empty().date });
     setRepeats(Boolean(lesson?.recurrenceWeekdays?.length && lesson.recurrenceUntil));
+    if (lesson && !dateHomework.trim()) {
+      void getPublicLessonHomework(lesson.id, statusDate, (lesson.studentRoster ?? []).map(student => student.id)).then(recoveredHomework => {
+        if (!active || !recoveredHomework) return;
+        setCurrentHomework(recoveredHomework);
+        setValue(current => ({
+          ...current,
+          currentHomework: recoveredHomework,
+          students: current.students.map(student => ({ ...student, homeworkAssigned: true })),
+        }));
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
   }, [lesson, groups, allLessons, initialDate, occurrenceDate]);
   const availableParticipants = groups.filter(group => (group.kind ?? 'group') === selectedKind);
   const kindLabels: Array<{ kind: GroupKind; label: string }> = [
@@ -200,15 +214,15 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
               <button type="button" className={!student.attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(student.id, { attended: false })}>Не был</button>
             </div>
             <div className="status-choice" aria-label={`Домашняя работа ${student.fullName}`}>
-              <button type="button" disabled={!student.homeworkAssigned} className={student.homeworkAssigned && student.homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, true)}>Есть</button>
-              <button type="button" disabled={!student.homeworkAssigned} className={student.homeworkAssigned && !student.homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, false)}>Нет</button>
+              <button type="button" className={student.homeworkAssigned && student.homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, true)}>Есть</button>
+              <button type="button" className={student.homeworkAssigned && !student.homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(student.id, false)}>Нет</button>
             </div>
             <input className="parent-comment-input" aria-label={`Комментарий родителю ${student.fullName}`} placeholder="Похвала или замечание" value={student.parentComment} onChange={e => updateStudent(student.id, { parentComment: e.target.value })} />
             <button type="button" className="remove-student" onClick={() => removeStudent(student.id)} aria-label="Удалить ученика из списка"><Trash2 size={15} /></button>
           </div>)}
         </div> : <p className="journal-empty">Добавьте ФИ учеников, чтобы отмечать посещение и домашнюю работу.</p>}
       </section>}
-      {selectedKind === 'individual' && value.students[0] && <section className="student-journal individual-attendance"><div className="student-journal-header"><div><span className="field-caption">Посещение и Д/з</span><small>Отметка на {occurrenceDate ?? value.date}</small></div></div><div className="individual-attendance-row"><strong>{value.students[0].fullName}</strong><div className="status-choice" aria-label="Посещение"><button type="button" className={value.students[0].attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: true })}>Был</button><button type="button" className={!value.students[0].attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: false })}>Не был</button></div><div className="status-choice" aria-label="Домашняя работа"><button type="button" disabled={!value.students[0].homeworkAssigned} className={value.students[0].homeworkAssigned && value.students[0].homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, true)}>Есть</button><button type="button" disabled={!value.students[0].homeworkAssigned} className={value.students[0].homeworkAssigned && !value.students[0].homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, false)}>Нет</button></div></div></section>}
+      {selectedKind === 'individual' && value.students[0] && <section className="student-journal individual-attendance"><div className="student-journal-header"><div><span className="field-caption">Посещение и Д/з</span><small>Отметка на {occurrenceDate ?? value.date}</small></div></div><div className="individual-attendance-row"><strong>{value.students[0].fullName}</strong><div className="status-choice" aria-label="Посещение"><button type="button" className={value.students[0].attended ? 'status-option positive selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: true })}>Был</button><button type="button" className={!value.students[0].attended ? 'status-option negative selected' : 'status-option'} onClick={() => updateStudent(value.students[0].id, { attended: false })}>Не был</button></div><div className="status-choice" aria-label="Домашняя работа"><button type="button" className={value.students[0].homeworkAssigned && value.students[0].homeworkDone ? 'status-option positive selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, true)}>Есть</button><button type="button" className={value.students[0].homeworkAssigned && !value.students[0].homeworkDone ? 'status-option negative selected' : 'status-option'} onClick={() => setHomeworkResult(value.students[0].id, false)}>Нет</button></div></div></section>}
       <section className="recurrence-section">
         <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={e => { setRepeats(e.target.checked); if (e.target.checked) setValue(current => ({ ...current, billingType: 'subscription' })); }} disabled={teacherMode} /><span>Повторять занятие</span></label>
         {repeats && <div className="recurrence-fields">

@@ -12,7 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { GroupDialog, type GroupInput } from './components/GroupDialog';
 import { LessonDialog, type LessonInput } from './components/LessonDialog';
-import { createGroup, createLesson, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonHomework, saveLessonProgress, savePublicLessonComment, savePublicLessonHomework, savePublicNextLessonHomework, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
+import { createGroup, createLesson, getPublicLessonHomework, publishPublicLesson, removeGroup, removeLesson, removePublicLesson, saveLessonHomework, saveLessonProgress, savePublicLessonComment, savePublicLessonHomework, savePublicNextLessonHomework, setGroupTeacher, setLessonTeacher, subscribeToGroups, subscribeToLessons, subscribeToTeachers, updateGroup, updateLesson } from './data/firestore';
 import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
@@ -167,7 +167,7 @@ export function App() {
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
-    const { students: lessonStudents, parentComment, homeworkAssigned, homework, notes, ...lessonFields } = input;
+    const { students: lessonStudents, parentComment, homeworkAssigned, homework, currentHomework: submittedCurrentHomework, notes, ...lessonFields } = input;
     const statusDate = editingOccurrenceDate ?? input.date;
     const recurring = isRecurringLesson(input);
     const outgoingHomeworkAssigned = homeworkAssigned && Boolean(homework.trim());
@@ -176,9 +176,15 @@ export function App() {
       : undefined;
     const nextHomeworkDate = nextGroupOccurrence?.occurrenceDate ?? nextLessonOccurrenceDate(input, statusDate);
     const homeworkTargetDate = nextHomeworkDate ?? statusDate;
-    const currentHomework = editingLesson
+    const storedCurrentHomework = editingLesson
       ? homeworkForGroupOccurrence(lessons, input.groupId, statusDate, editingLesson.id)
       : '';
+    const publicCurrentHomework = editingLesson && !submittedCurrentHomework.trim() && !storedCurrentHomework.trim()
+      ? await getPublicLessonHomework(editingLesson.id, statusDate, (editingLesson.studentRoster ?? []).map(student => student.id)).catch(() => '')
+      : '';
+    const currentHomework = submittedCurrentHomework.trim()
+      || storedCurrentHomework.trim()
+      || publicCurrentHomework;
     const studentRoster = lessonStudents.map(student => ({ id: student.id, fullName: student.fullName.trim() })).filter(student => student.fullName);
     const dateStatuses = Object.fromEntries(lessonStudents.filter(student => student.fullName.trim()).map(student => [student.id, { attended: student.attended, homeworkDone: student.homeworkAssigned ? student.homeworkDone : false, homeworkAssigned: student.homeworkAssigned }]));
     const studentStatusByDate = { ...(editingLesson?.studentStatusByDate ?? {}), [statusDate]: dateStatuses };

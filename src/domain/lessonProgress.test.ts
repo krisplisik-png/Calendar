@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Lesson } from '../types';
-import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, nextGroupLessonOccurrence, nextLessonOccurrenceDate, summarizeHomeworkResults } from './lessonProgress';
+import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, homeworkFromPublicFeedback, nextGroupLessonOccurrence, nextLessonOccurrenceDate, summarizeHomeworkResults } from './lessonProgress';
 
 describe('lesson occurrence homework', () => {
   it('keeps homework only on the saved date of a recurring lesson', () => {
@@ -69,12 +69,33 @@ describe('lesson occurrence homework', () => {
 
     expect(homeworkForGroupOccurrence(lessons, 'gg2', '2026-09-17', 'target')).toBe('Страница 12');
   });
+
+  it('keeps homework isolated on every future weekly occurrence', () => {
+    const lessons = [{
+      id: 'monday-15', groupId: 'weekly-group', date: '2026-09-07', startTime: '15:00',
+      recurrenceWeekdays: [1], recurrenceUntil: '2026-10-31',
+      parentCommentByDate: {
+        '2026-09-14': { [HOMEWORK_DATE_KEY]: 'Task for 14 September' },
+        '2026-09-21': { [HOMEWORK_DATE_KEY]: 'Task for 21 September' },
+      },
+    }] as unknown as Lesson[];
+
+    expect(homeworkForGroupOccurrence(lessons, 'weekly-group', '2026-09-14', 'monday-15')).toBe('Task for 14 September');
+    expect(homeworkForGroupOccurrence(lessons, 'weekly-group', '2026-09-21', 'monday-15')).toBe('Task for 21 September');
+    expect(homeworkForGroupOccurrence(lessons, 'weekly-group', '2026-09-28', 'monday-15')).toBe('');
+    expect(nextGroupLessonOccurrence(lessons, 'weekly-group', '2026-09-14', 'monday-15', '15:00')?.occurrenceDate).toBe('2026-09-21');
+  });
 });
 
 describe('homework grading and totals', () => {
   it('allows grading when homework text was added after an old not-assigned status', () => {
     expect(homeworkCanBeGraded('Page 12', { homeworkAssigned: false, homeworkDone: false })).toBe(true);
     expect(homeworkCanBeGraded('', { homeworkAssigned: false, homeworkDone: false })).toBe(false);
+  });
+
+  it('recovers homework stored in an exact-date legacy public record', () => {
+    expect(homeworkFromPublicFeedback({ homework: '  Exercise 7  ' })).toBe('Exercise 7');
+    expect(homeworkFromPublicFeedback(undefined)).toBe('');
   });
 
   it('counts only assigned homework in the parent result', () => {
