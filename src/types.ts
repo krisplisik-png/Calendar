@@ -163,6 +163,7 @@ export interface Lesson {
   schoolId: string;
   groupId: string;
   teacherId?: string;
+  authorizedTeacherIds?: string[];
   substituteForTeacherId?: string;
   substitutionDate?: string;
   date: string;

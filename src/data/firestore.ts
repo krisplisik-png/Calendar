@@ -29,12 +29,27 @@ export function subscribeToGroups(schoolId: string, next: (items: Group[]) => vo
 }
 
 export function subscribeToLessons(schoolId: string, next: (items: Lesson[]) => void, error: ErrorHandler, teacherId?: string): Unsubscribe {
-  const lessonsQuery = teacherId
-    ? query(collection(db, 'lessons'), where('schoolId', '==', schoolId), where('teacherId', '==', teacherId))
-    : query(collection(db, 'lessons'), where('schoolId', '==', schoolId));
-  return onSnapshot(lessonsQuery, snapshot => {
-    next(snapshot.docs.map(item => mapDocument<Lesson>(item.data(), item.id)).sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)));
-  }, error);
+  if (!teacherId) {
+    const lessonsQuery = query(collection(db, 'lessons'), where('schoolId', '==', schoolId));
+    return onSnapshot(lessonsQuery, snapshot => {
+      next(snapshot.docs.map(item => mapDocument<Lesson>(item.data(), item.id)).sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)));
+    }, error);
+  }
+  const primary = new Map<string, Lesson>();
+  const authorized = new Map<string, Lesson>();
+  const emit = () => next(Array.from(new Map([...primary, ...authorized]).values())
+    .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)));
+  const offPrimary = onSnapshot(
+    query(collection(db, 'lessons'), where('schoolId', '==', schoolId), where('teacherId', '==', teacherId)),
+    snapshot => { primary.clear(); snapshot.docs.forEach(item => primary.set(item.id, mapDocument<Lesson>(item.data(), item.id))); emit(); },
+    error,
+  );
+  const offAuthorized = onSnapshot(
+    query(collection(db, 'lessons'), where('schoolId', '==', schoolId), where('authorizedTeacherIds', 'array-contains', teacherId)),
+    snapshot => { authorized.clear(); snapshot.docs.forEach(item => authorized.set(item.id, mapDocument<Lesson>(item.data(), item.id))); emit(); },
+    error,
+  );
+  return () => { offPrimary(); offAuthorized(); };
 }
 
 export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget' | 'subscriptionLessonPrice' | 'singleLessonPrice'>) {

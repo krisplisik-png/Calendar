@@ -53,6 +53,7 @@ export function App() {
   const [parentSyncError, setParentSyncError] = useState('');
   const parentSyncPromise = useRef<Promise<void> | null>(null);
   const repairedParentRoots = useRef('');
+  const repairedSubstitutionAccess = useRef('');
   const [exportDialog, setExportDialog] = useState(false);
   const parentToken = new URLSearchParams(window.location.search).get('parent')?.trim() ?? '';
   const simpleGroupId = new URLSearchParams(window.location.search).get('group')?.trim() ?? '';
@@ -83,6 +84,23 @@ export function App() {
       setParentSyncError(humanizeFirebaseError(error));
     });
   }, [userProfile, parentAccess]);
+  useEffect(() => {
+    if (!userProfile || !['owner', 'admin'].includes(userProfile.role) || !lessons.length || !groups.length) return;
+    const groupById = new Map(groups.map(group => [group.id, group]));
+    const repairs = lessons.flatMap(lesson => {
+      const primaryTeacherId = lesson.substituteForTeacherId || groupById.get(lesson.groupId)?.teacherId;
+      if (!primaryTeacherId || primaryTeacherId === lesson.teacherId || lesson.authorizedTeacherIds?.includes(primaryTeacherId)) return [];
+      return [{ lesson, authorizedTeacherIds: Array.from(new Set([...(lesson.authorizedTeacherIds ?? []), primaryTeacherId])) }];
+    });
+    const signature = repairs.map(item => `${item.lesson.id}:${item.authorizedTeacherIds.join(',')}`).sort().join('|');
+    if (!signature) { repairedSubstitutionAccess.current = ''; return; }
+    if (repairedSubstitutionAccess.current === signature) return;
+    repairedSubstitutionAccess.current = signature;
+    void Promise.all(repairs.map(item => updateLesson(item.lesson.id, { authorizedTeacherIds: item.authorizedTeacherIds }))).catch(error => {
+      repairedSubstitutionAccess.current = '';
+      setDataError(humanizeFirebaseError(error));
+    });
+  }, [userProfile, groups, lessons]);
 
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {
@@ -326,14 +344,16 @@ export function App() {
     try {
       await updateGroup(group.id, { authorizedTeacherIds: Array.from(new Set([...(group.authorizedTeacherIds ?? []), substituteTeacherId])) });
       let assignedCount = 0;
-      for (const source of lessons.filter(item => item.groupId === group.id)) {
+      for (const source of lessons.filter(item => item.groupId === group.id && !item.substitutionDate)) {
         const dates = expandLessonOccurrences(source).map(item => item.occurrenceDate).filter(date => date >= dateFrom && date <= dateTo);
         if (!dates.length) continue;
         if (source.recurrenceWeekdays?.length && source.recurrenceUntil) {
           for (const date of dates) {
             const statusForDate = source.studentStatusByDate?.[date];
+            const originalTeacherIds = Array.from(new Set([...(source.authorizedTeacherIds ?? []), source.teacherId].filter((id): id is string => Boolean(id) && id !== substituteTeacherId)));
             const cloneInput = Object.fromEntries(Object.entries({
               groupId: source.groupId, teacherId: substituteTeacherId, substituteForTeacherId: source.teacherId ?? '', substitutionDate: date,
+              authorizedTeacherIds: originalTeacherIds,
               date, startTime: source.startTime, endTime: source.endTime, course: source.course ?? '', unit: source.unit ?? '', lesson: source.lesson ?? '', topic: source.topic ?? '',
               homework: homeworkForOccurrence(source, date), notes: source.notes ?? '', room: source.room ?? '', minAge: source.minAge, maxAge: source.maxAge,
               billingType: source.billingType ?? 'subscription', recurrenceWeekdays: [], recurrenceUntil: '', excludedDates: [], studentRoster: source.studentRoster ?? [],
@@ -357,7 +377,15 @@ export function App() {
           await updateLesson(source.id, { excludedDates });
           await publishPublicLesson(source.id, profile.schoolId, { ...source, excludedDates }, group);
         } else {
-          await setLessonTeacher(source.id, substituteTeacherId);
+          const originalTeacherIds = Array.from(new Set([...(source.authorizedTeacherIds ?? []), source.teacherId].filter((id): id is string => Boolean(id) && id !== substituteTeacherId)));
+          const replacement = {
+            teacherId: substituteTeacherId,
+            substituteForTeacherId: source.teacherId ?? group.teacherId ?? '',
+            substitutionDate: source.date,
+            authorizedTeacherIds: originalTeacherIds,
+          };
+          await updateLesson(source.id, replacement);
+          await publishPublicLesson(source.id, profile.schoolId, { ...source, ...replacement }, group);
           assignedCount += 1;
         }
       }
