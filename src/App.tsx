@@ -17,6 +17,7 @@ import { humanizeFirebaseError } from './lib/errors';
 import type { Group, Lesson, SchoolUser } from './types';
 import { expandLessonOccurrences } from './domain/recurrence';
 import { HOMEWORK_DATE_KEY, homeworkForGroupOccurrence, homeworkForOccurrence, isRecurringLesson, nextGroupLessonOccurrence, nextLessonOccurrenceDate } from './domain/lessonProgress';
+import { pairStudentNames } from './domain/groupStudents';
 import { PaymentsPage } from './components/PaymentsPage';
 import { TeacherAssignmentsDialog } from './components/TeacherAssignmentsDialog';
 import { ParentAccessDialog } from './components/ParentAccessDialog';
@@ -111,7 +112,7 @@ export function App() {
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
-    const tracksAttendance = ['group', 'individual'].includes(group?.kind ?? 'group');
+    const tracksAttendance = ['group', 'pair', 'individual'].includes(group?.kind ?? 'group');
     const occurrenceHasEnded = DateTime.fromISO(`${occurrenceDate}T${item.endTime}`, { zone: 'Asia/Yekaterinburg' }) <= now.setZone('Asia/Yekaterinburg');
     const savedStatuses = item.studentStatusByDate?.[occurrenceDate];
     const hasSavedAttendance = Boolean(savedStatuses && Object.values(savedStatuses).some(status => typeof status.attended === 'boolean'));
@@ -164,8 +165,16 @@ export function App() {
     return operation;
   }
   async function saveGroup(input: GroupInput) {
-    if (editingGroup) await updateGroup(editingGroup.id, input);
-    else await createGroup(profile.schoolId, input);
+    let groupId: string;
+    if (editingGroup) {
+      await updateGroup(editingGroup.id, input);
+      groupId = editingGroup.id;
+    } else {
+      groupId = (await createGroup(profile.schoolId, input)).id;
+    }
+    if (input.kind === 'pair') {
+      for (const fullName of input.studentNames) await addStudentManually(fullName, [groupId]);
+    }
     void refreshParentViews().catch(error => setDataError(humanizeFirebaseError(error)));
   }
   async function deleteGroup(group: Group) {
@@ -315,15 +324,18 @@ export function App() {
     const rosterUpdate = Promise.all(lessons.filter(lesson => groupIds.includes(lesson.groupId)).map(lesson => {
       const roster = lesson.studentRoster ?? [];
       const exists = roster.some(item => normalize(item.fullName) === normalize(cleanName));
-      return exists ? Promise.resolve() : updateLesson(lesson.id, { studentRoster: [...roster, { id: student!.id, fullName: cleanName }] });
+      const group = groups.find(item => item.id === lesson.groupId);
+      const pairIndex = pairStudentNames(group).findIndex(name => normalize(name) === normalize(cleanName));
+      const rosterStudentId = group?.kind === 'pair' && pairIndex >= 0 ? `pair_${group.id}_${pairIndex}` : student!.id;
+      return exists ? Promise.resolve() : updateLesson(lesson.id, { studentRoster: [...roster, { id: rosterStudentId, fullName: cleanName }] });
     }));
-    void rosterUpdate.catch(error => setDataError(humanizeFirebaseError(error)));
+    await rosterUpdate;
     return student;
   }
   async function prepareSimpleGroupLink(fullName: string, groupId: string) {
     const group = groups.find(item => item.id === groupId);
-    if (!group) throw new Error('Выбранная группа не найдена.');
-    if ((group.kind ?? 'group') !== 'group') throw new Error('Простая ссылка создаётся только для групповых занятий.');
+    if (!group) throw new Error('Выбранная группа или пара не найдена.');
+    if (!['group', 'pair'].includes(group.kind ?? 'group')) throw new Error('Простая ссылка создаётся только для групповых занятий и пар.');
     const publication = Promise.all(lessons.filter(lesson => lesson.groupId === groupId).map(lesson => publishPublicLesson(lesson.id, profile.schoolId, lesson, group)));
     void publication.catch(error => setDataError(humanizeFirebaseError(error)));
     const student = await addStudentManually(fullName, [groupId]);

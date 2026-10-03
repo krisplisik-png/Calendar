@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Copy, ExternalLink, Link2, Pencil, Plus, RefreshCw, Search, Unlink, X } from 'lucide-react';
 import type { Group, Lesson, ParentAccess, Student } from '../types';
+import { pairStudentNames } from '../domain/groupStudents';
 
 interface SimpleGroupLink {
   id: string;
@@ -49,7 +50,7 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
   const [manualSimpleLinks, setManualSimpleLinks] = useState<SimpleGroupLink[]>(savedSimpleLinks);
 
   const studentMap = useMemo(() => new Map(students.map(student => [student.id, student])), [students]);
-  const groupMap = useMemo(() => new Map(groups.filter(group => (group.kind ?? 'group') === 'group').map(group => [group.id, group])), [groups]);
+  const groupMap = useMemo(() => new Map(groups.filter(group => ['group', 'pair'].includes(group.kind ?? 'group')).map(group => [group.id, group])), [groups]);
 
   const automaticSimpleLinks = useMemo(() => {
     const result = new Map<string, SimpleGroupLink>();
@@ -98,6 +99,16 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
       if (!group) return;
       result.set(key, { id: key, fullName: student.fullName.trim(), studentId: student.id, groupId, groupName: group.name });
     });
+
+    // Pairs created in older versions stored both names only in the pair title.
+    // Expose both links immediately; opening either link completes the normal
+    // student/roster synchronization in Firebase.
+    groupMap.forEach(group => pairStudentNames(group).forEach((fullName, index) => {
+      const key = `${group.id}:${normalizeName(fullName)}`;
+      if (result.has(key)) return;
+      const rosterStudent = rosterByGroupAndName.get(key);
+      result.set(key, { id: key, fullName, studentId: rosterStudent?.id ?? `pair_${group.id}_${index}`, groupId: group.id, groupName: group.name });
+    }));
 
     return Array.from(result.values()).sort((a, b) => `${a.fullName}${a.groupName}`.localeCompare(`${b.fullName}${b.groupName}`, 'ru'));
   }, [students, lessons, groupMap]);
@@ -253,19 +264,19 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
       <div className="dialog-note">Новые дети из занятий появляются ниже автоматически. Ничего создавать и сохранять не нужно: найдите ребёнка и нажмите «скопировать» или «открыть».</div>
 
       <section className="simple-group-link-form">
-        <div><h3>Готовые ссылки на расписание групп</h3><p>Ссылка сразу открывает текущий календарь группы. При нажатии на занятие родитель увидит дату, время, кабинет, преподавателя, домашнее задание и комментарий.</p></div>
-        <label className="parent-link-search simple-link-search"><Search size={17} /><input type="search" value={simpleSearch} onChange={event => setSimpleSearch(event.target.value)} placeholder="Найти ребёнка или группу" />{simpleSearch && <button type="button" onClick={() => setSimpleSearch('')} aria-label="Очистить поиск"><X size={15} /></button>}</label>
+        <div><h3>Готовые ссылки на расписание групп и пар</h3><p>Для каждого ребёнка создаётся отдельная ссылка. Она сразу открывает календарь его группы или пары с датой, временем, кабинетом, преподавателем, домашним заданием и личным комментарием.</p></div>
+        <label className="parent-link-search simple-link-search"><Search size={17} /><input type="search" value={simpleSearch} onChange={event => setSimpleSearch(event.target.value)} placeholder="Найти ребёнка, группу или пару" />{simpleSearch && <button type="button" onClick={() => setSimpleSearch('')} aria-label="Очистить поиск"><X size={15} /></button>}</label>
         <div className="simple-group-links">
           {filteredSimpleLinks.map(link => <article key={link.id}><div><strong>{link.fullName}</strong><small>{link.groupName} · ссылка готова</small></div><button type="button" title="Скопировать" onClick={() => copySimpleLink(link)}><Copy size={16} /></button><button type="button" title="Открыть" onClick={() => openSimpleLink(link)}><ExternalLink size={16} /></button></article>)}
-          {!filteredSimpleLinks.length && <p className="journal-empty">{simpleSearch ? 'Ребёнок с таким именем пока не найден в групповых занятиях.' : 'Добавьте ребёнка в список группового занятия — ссылка появится здесь автоматически.'}</p>}
+          {!filteredSimpleLinks.length && <p className="journal-empty">{simpleSearch ? 'Ребёнок с таким именем пока не найден в группах или парах.' : 'Добавьте ребёнка в группу или пару — ссылка появится здесь автоматически.'}</p>}
         </div>
-        <details className="manual-simple-link"><summary>Если ребёнка ещё нет в готовом списке</summary><form onSubmit={createSimpleLink}><label>Фамилия и имя<input list="simple-parent-students" value={simpleName} onChange={event => setSimpleName(event.target.value)} placeholder="Романенко Юлия" /></label><datalist id="simple-parent-students">{students.filter(student => student.active !== false).map(student => <option value={student.fullName} key={student.id} />)}</datalist><label>Группа<select value={simpleGroupId} onChange={event => setSimpleGroupId(event.target.value)}><option value="">Выберите группу</option>{Array.from(groupMap.values()).map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label><button className="primary-button" disabled={!simpleName.trim() || !simpleGroupId}><Link2 size={16} />Добавить в список и скопировать</button></form></details>
+        <details className="manual-simple-link"><summary>Если ребёнка ещё нет в готовом списке</summary><form onSubmit={createSimpleLink}><label>Фамилия и имя<input list="simple-parent-students" value={simpleName} onChange={event => setSimpleName(event.target.value)} placeholder="Романенко Юлия" /></label><datalist id="simple-parent-students">{students.filter(student => student.active !== false).map(student => <option value={student.fullName} key={student.id} />)}</datalist><label>Группа или пара<select value={simpleGroupId} onChange={event => setSimpleGroupId(event.target.value)}><option value="">Выберите группу или пару</option>{Array.from(groupMap.values()).map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label><button className="primary-button" disabled={!simpleName.trim() || !simpleGroupId}><Link2 size={16} />Добавить в список и скопировать</button></form></details>
       </section>
 
       {operationError && <div className="form-error" role="alert">{operationError}</div>}
       {notice && <div className="success-note">{notice}</div>}
 
-      <details className="manual-parent-tools"><summary>Добавить ученика вручную (необязательно)</summary><form className="student-create-form" onSubmit={addStudent}><h3>Добавить ученика</h3><label>Фамилия и имя<input value={name} onChange={event => setName(event.target.value)} placeholder="Например: Мария Петрова" /></label><fieldset><legend>Прикрепить к группам</legend>{groups.map(group => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={() => setGroupIds(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])} />{group.name}</label>)}</fieldset><button className="ghost-button" disabled={busy || !name.trim() || !groupIds.length}><Plus size={16} />Добавить ученика</button></form></details>
+      <details className="manual-parent-tools"><summary>Добавить ученика вручную (необязательно)</summary><form className="student-create-form" onSubmit={addStudent}><h3>Добавить ученика</h3><label>Фамилия и имя<input value={name} onChange={event => setName(event.target.value)} placeholder="Например: Мария Петрова" /></label><fieldset><legend>Прикрепить к группам или парам</legend>{groups.map(group => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={() => setGroupIds(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])} />{group.name}</label>)}</fieldset><button className="ghost-button" disabled={busy || !name.trim() || !groupIds.length}><Plus size={16} />Добавить ученика</button></form></details>
 
       {access.some(item => item.active) && <details className="manual-parent-tools legacy-parent-tools"><summary>Старые персональные ссылки (для уже выданных адресов)</summary><section className="parent-links"><p className="legacy-parent-note">Старые рабочие ссылки продолжают действовать. Для новых детей используйте готовые групповые ссылки выше.</p><label className="parent-link-search"><Search size={17} /><input type="search" value={linkSearch} onChange={event => setLinkSearch(event.target.value)} placeholder="Найти старую ссылку" />{linkSearch && <button type="button" onClick={() => setLinkSearch('')} aria-label="Очистить поиск"><X size={15} /></button>}</label>{filteredAccess.map(item => <article key={item.id}><div><strong>{item.studentIds.map(id => studentMap.get(id)?.fullName).filter(Boolean).join(' · ') || 'Ученик не найден'}</strong><small>Старая персональная ссылка</small></div><button title="Исправить фамилию или имя" disabled={busy} onClick={() => rename(item)}><Pencil size={16} /></button><button title="Скопировать" disabled={busy} onClick={() => copyLegacy(item.token)}><Copy size={16} /></button><button title="Открыть" disabled={busy} onClick={() => window.open(urlFor(item.token), '_blank', 'noopener,noreferrer')}><ExternalLink size={16} /></button><button title="Восстановить" disabled={busy} onClick={() => repair(item)}><RefreshCw size={16} /></button><button className="link-danger" title="Отключить" disabled={busy} onClick={() => onDisable(item)}><Unlink size={16} /></button></article>)}{!filteredAccess.length && <p className="journal-empty">Старая ссылка не найдена.</p>}<button className="ghost-button legacy-rebuild" disabled={busy || syncing} onClick={async () => { setBusy(true); setOperationError(''); try { await onRebuild(); setNotice('Старые персональные ссылки обновлены'); } catch (error) { setOperationError(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); } }}><RefreshCw size={16} />{syncing ? 'Обновляем…' : 'Восстановить старые ссылки'}</button>{syncError && <div className="form-error" role="alert">Не удалось обновить старые ссылки: {syncError}</div>}</section></details>}
 

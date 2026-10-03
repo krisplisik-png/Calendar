@@ -52,7 +52,7 @@ export function subscribeToLessons(schoolId: string, next: (items: Lesson[]) => 
   return () => { offPrimary(); offAuthorized(); };
 }
 
-export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget' | 'subscriptionLessonPrice' | 'singleLessonPrice'>) {
+export async function createGroup(schoolId: string, input: Pick<Group, 'name' | 'kind' | 'studentNames' | 'color' | 'course' | 'level' | 'notes' | 'monthlyLessonTarget' | 'subscriptionLessonPrice' | 'singleLessonPrice'>) {
   return addDoc(collection(db, 'groups'), {
     ...input, schoolId, studentIds: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
@@ -145,7 +145,7 @@ export async function removeLesson(id: string) {
 }
 
 export async function publishPublicLesson(id: string, schoolId: string, lesson: Partial<Lesson>, group?: Group) {
-  if (!group || (group.kind ?? 'group') !== 'group') {
+  if (!group || !['group', 'pair'].includes(group.kind ?? 'group')) {
     return deleteDoc(doc(db, 'publicLessons', id));
   }
   let teacherName = '';

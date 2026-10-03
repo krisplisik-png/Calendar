@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import type { Group, GroupKind, Lesson } from '../types';
 import { getPublicLessonHomework } from '../data/firestore';
 import { HOMEWORK_DATE_KEY, homeworkCanBeGraded, homeworkForGroupOccurrence, homeworkForOccurrence, nextGroupLessonOccurrence, nextLessonOccurrenceDate } from '../domain/lessonProgress';
+import { pairStudentNames } from '../domain/groupStudents';
 
 export interface StudentStatusInput {
   id: string;
@@ -61,7 +62,12 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
     setCurrentHomework(dateHomework);
     const savedStatusEntries = Object.values(statuses);
     const savedCommentEntries = Object.entries(comments).filter(([key]) => !['__general', HOMEWORK_DATE_KEY].includes(key)).map(([, comment]) => comment);
-    const rosterStudents = (lesson?.studentRoster ?? []).map((student, index) => {
+    const initialRoster = lesson?.studentRoster?.length
+      ? lesson.studentRoster
+      : initialKind === 'pair' && existingGroup
+        ? pairStudentNames(existingGroup).map((fullName, index) => ({ id: `pair_${existingGroup.id}_${index}`, fullName }))
+        : [];
+    const rosterStudents = initialRoster.map((student, index) => {
       // Older group lessons could receive new roster IDs during synchronization.
       // Fall back to the matching row position once, then the next save migrates
       // the status to the current stable roster ID.
@@ -121,7 +127,7 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
   ];
   function selectKind(kind: GroupKind) {
     setSelectedKind(kind);
-    setValue(current => ({ ...current, groupId: '', students: kind === 'group' ? current.students : [] }));
+    setValue(current => ({ ...current, groupId: '', students: kind === 'group' ? current.students : kind === 'pair' ? current.students.slice(0, 2) : [] }));
   }
   function selectParticipant(groupId: string) {
     const participant = groups.find(group => group.id === groupId);
@@ -130,11 +136,13 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
       groupId,
       students: selectedKind === 'individual' && participant
         ? [{ id: `individual_${participant.id}`, fullName: participant.name, attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }]
-        : selectedKind === 'group' ? current.students : [],
+        : selectedKind === 'pair' && participant
+          ? pairStudentNames(participant).map((fullName, index) => ({ id: `pair_${participant.id}_${index}`, fullName, attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }))
+          : selectedKind === 'group' ? current.students : [],
     }));
   }
   function addStudent() {
-    setValue(current => ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }] }));
+    setValue(current => selectedKind === 'pair' && current.students.length >= 2 ? current : ({ ...current, students: [...current.students, { id: crypto.randomUUID(), fullName: '', attended: false, homeworkDone: false, homeworkAssigned: false, parentComment: '' }] }));
   }
   function updateStudent(id: string, patch: Partial<StudentStatusInput>) {
     setValue(current => ({ ...current, students: current.students.map(student => student.id === id ? { ...student, ...patch } : student) }));
@@ -157,6 +165,10 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
     }
     if (selectedKind === 'group' && (!value.minAge || !value.maxAge || value.minAge > value.maxAge)) {
       setSaveError('Проверьте возраст: заполните оба поля, а возраст «от» должен быть не больше возраста «до».');
+      return;
+    }
+    if (selectedKind === 'pair' && value.students.filter(student => student.fullName.trim()).length !== 2) {
+      setSaveError('Для пары укажите фамилию и имя каждого из двух учеников.');
       return;
     }
     if (value.homeworkAssigned && !value.homework.trim()) {
@@ -203,8 +215,8 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
       <fieldset className="billing-type"><legend>Как считать оплату</legend><label className={value.billingType === 'subscription' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'subscription'} onChange={() => setValue({ ...value, billingType: 'subscription' })} disabled={teacherMode} />Цена по абонементу</label><label className={value.billingType === 'single' ? 'selected' : ''}><input type="radio" name="billing-type" checked={value.billingType === 'single'} onChange={() => setValue({ ...value, billingType: 'single' })} disabled={teacherMode} />Цена разового урока</label><small className="billing-help">Каждое занятие автоматически попадёт в оплату выбранного месяца. Для разового урока конкретному ученику выберите формат «Индивидуал», ученика и «Цена разового урока».</small></fieldset>
       <div className="form-grid"><label>Курс<input value={value.course} onChange={e => setValue({ ...value, course: e.target.value })} disabled={teacherMode} /></label><label>Тема<input value={value.topic} onChange={e => setValue({ ...value, topic: e.target.value })} disabled={teacherMode} /></label></div>
       <div className="form-grid"><label>Юнит<input value={value.unit} onChange={e => setValue({ ...value, unit: e.target.value })} disabled={teacherMode} /></label><label>Урок<input value={value.lesson} onChange={e => setValue({ ...value, lesson: e.target.value })} disabled={teacherMode} /></label></div>
-      {selectedKind === 'group' && <section className="student-journal">
-        <div className="student-journal-header"><div><span className="field-caption">Ученики группы</span><small>Посещение и домашняя работа на {occurrenceDate ?? value.date}</small></div><button type="button" className="ghost-button" onClick={addStudent}><Plus size={15} />Добавить ФИ</button></div>
+      {(selectedKind === 'group' || selectedKind === 'pair') && <section className="student-journal">
+        <div className="student-journal-header"><div><span className="field-caption">{selectedKind === 'pair' ? 'Ученики пары' : 'Ученики группы'}</span><small>Посещение и домашняя работа на {occurrenceDate ?? value.date}</small></div>{(selectedKind === 'group' || value.students.length < 2) && <button type="button" className="ghost-button" onClick={addStudent}><Plus size={15} />Добавить ФИ</button>}</div>
         {value.students.length ? <div className="student-list">
           <div className="student-list-head"><span>Фамилия и имя</span><span>Посещение</span><span>Д/з</span><span>Комментарий родителю</span><span /></div>
           {value.students.map(student => <div className="student-row" key={student.id}>
@@ -235,7 +247,7 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
       </section>
       {currentHomework && <div className="teacher-mode-note"><strong>Домашнее к выбранному занятию:</strong> {currentHomework}</div>}
       <section className="homework-editor"><label>{nextHomeworkDate ? `Домашнее задание на следующее занятие — ${nextHomeworkDateLabel}` : 'Домашнее задание'}<textarea value={value.homework} onChange={e => setValue({ ...value, homework: e.target.value, homeworkAssigned: Boolean(e.target.value.trim()) })} placeholder="Напишите домашнюю работу" /></label><label className="homework-not-assigned"><input type="checkbox" checked={!value.homeworkAssigned} onChange={e => setHomeworkNotAssigned(e.target.checked)} /><span><strong>Не задавал(а)</strong><small>{nextHomeworkDate ? `Занятие ${nextHomeworkDateLabel} не попадёт в подсчёт домашних работ` : 'Это занятие не попадёт в подсчёт домашних работ'}</small></span></label></section>
-      {selectedKind !== 'group' && <label>Комментарий для родителей<textarea value={value.parentComment} onChange={e => setValue({ ...value, parentComment: e.target.value })} placeholder="Например: Сегодня отлично отвечал и очень старался" /><small className="field-help">Родитель увидит этот комментарий при открытии данного урока. Внутренние заметки ниже родителю не показываются.</small></label>}
+      {selectedKind === 'individual' && <label>Комментарий для родителей<textarea value={value.parentComment} onChange={e => setValue({ ...value, parentComment: e.target.value })} placeholder="Например: Сегодня отлично отвечал и очень старался" /><small className="field-help">Родитель увидит этот комментарий при открытии данного урока. Внутренние заметки ниже родителю не показываются.</small></label>}
       <label>Заметки<textarea value={value.notes} onChange={e => setValue({ ...value, notes: e.target.value })} /></label>
       {confirmDelete && <div className="delete-confirm lesson-delete-confirm" role="alert"><span>{lesson?.recurrenceWeekdays?.length ? 'Что нужно удалить?' : 'Точно удалить это занятие?'}</span><button type="button" className="ghost-button" onClick={() => setConfirmDelete(false)}>Отмена</button>{lesson?.recurrenceWeekdays?.length ? <><button type="button" className="danger-button" onClick={() => remove('occurrence')}>Только это занятие</button><button type="button" className="danger-button" onClick={() => remove('series')}>Всю серию</button></> : <button type="button" className="danger-button" onClick={() => remove('series')}>Да, удалить</button>}</div>}
       {saveError && <div className="form-error" role="alert">{saveError}</div>}

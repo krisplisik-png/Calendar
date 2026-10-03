@@ -21,6 +21,7 @@ export interface Group {
   authorizedTeacherIds?: string[];
   name: string;
   kind?: GroupKind;
+  studentNames?: string[];
   color: string;
   course?: string;
   level?: string;
