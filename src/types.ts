@@ -26,7 +26,7 @@ export interface Group {
   level?: string;
   studentIds: string[];
   notes?: string;
-  monthlyLessonTarget?: 6 | 7 | 8 | 9 | 10;
+  monthlyLessonTarget?: 3 | 4 | 6 | 7 | 8 | 9 | 10;
   subscriptionLessonPrice?: number;
   singleLessonPrice?: number;
   createdAt: Timestamp;
