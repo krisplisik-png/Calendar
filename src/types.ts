@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'owner' | 'admin' | 'teacher' | 'parent';
+export type UserRole = 'owner' | 'admin' | 'teacher' | 'controller' | 'parent';
 export type GroupKind = 'group' | 'pair' | 'individual';
 
 export interface UserProfile {

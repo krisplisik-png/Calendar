@@ -6,21 +6,22 @@ service cloud.firestore {
     function sameSchool(schoolId) { return signedIn() && profile().schoolId == schoolId; }
     function managesFinance() { return signedIn() && profile().role in ['owner', 'admin']; }
     function manager() { return signedIn() && profile().role in ['owner', 'admin']; }
+    function controller() { return signedIn() && profile().role == 'controller'; }
     function assignedTeacher(data) { return signedIn() && profile().role == 'teacher' && ((data.keys().hasAny(['teacherId']) && data.teacherId == request.auth.uid) || (data.keys().hasAny(['authorizedTeacherIds']) && request.auth.uid in data.authorizedTeacherIds)); }
 
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || profile().role in ['owner', 'admin']);
+      allow read: if signedIn() && (request.auth.uid == userId || ((manager() || controller()) && profile().schoolId == resource.data.schoolId));
     }
 
     match /groups/{groupId} {
-      allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || controller() || assignedTeacher(resource.data));
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
       allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
     match /lessons/{lessonId} {
-      allow read: if sameSchool(resource.data.schoolId) && (manager() || assignedTeacher(resource.data));
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || controller() || assignedTeacher(resource.data));
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && (manager() || (assignedTeacher(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homework', 'notes', 'studentRoster', 'studentStatusByDate', 'attendanceCompletedDates', 'parentCommentByDate', 'updatedAt'])));
       allow delete: if sameSchool(resource.data.schoolId) && manager();
@@ -34,14 +35,14 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow read: if sameSchool(resource.data.schoolId) && manager();
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || controller());
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
       allow delete: if sameSchool(resource.data.schoolId) && manager();
     }
 
     match /parentAccess/{accessId} {
-      allow read: if sameSchool(resource.data.schoolId) && manager();
+      allow read: if sameSchool(resource.data.schoolId) && (manager() || controller());
       allow create: if sameSchool(request.resource.data.schoolId) && manager();
       allow update: if sameSchool(resource.data.schoolId) && sameSchool(request.resource.data.schoolId) && manager();
       allow delete: if sameSchool(resource.data.schoolId) && manager();

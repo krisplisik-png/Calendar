@@ -70,9 +70,9 @@ export function App() {
     const teacherId = userProfile.role === 'teacher' ? firebaseUser?.uid : undefined;
     const offGroups = subscribeToGroups(userProfile.schoolId, setGroups, handleError, teacherId);
     const offLessons = subscribeToLessons(userProfile.schoolId, setLessons, handleError, teacherId);
-    const offTeachers = ['owner', 'admin'].includes(userProfile.role) ? subscribeToTeachers(userProfile.schoolId, setTeachers, handleError) : () => undefined;
-    const offStudents = ['owner', 'admin'].includes(userProfile.role) ? subscribeToStudents(userProfile.schoolId, setStudents, handleError) : () => undefined;
-    const offParentAccess = ['owner', 'admin'].includes(userProfile.role) ? subscribeToParentAccess(userProfile.schoolId, setParentAccess, handleError) : () => undefined;
+    const offTeachers = ['owner', 'admin', 'controller'].includes(userProfile.role) ? subscribeToTeachers(userProfile.schoolId, setTeachers, handleError) : () => undefined;
+    const offStudents = ['owner', 'admin', 'controller'].includes(userProfile.role) ? subscribeToStudents(userProfile.schoolId, setStudents, handleError) : () => undefined;
+    const offParentAccess = ['owner', 'admin', 'controller'].includes(userProfile.role) ? subscribeToParentAccess(userProfile.schoolId, setParentAccess, handleError) : () => undefined;
     return () => { offGroups(); offLessons(); offTeachers(); offStudents(); offParentAccess(); };
   }, [userProfile, firebaseUser]);
   useEffect(() => {
@@ -104,13 +104,17 @@ export function App() {
   }, [userProfile, groups, lessons]);
 
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
+  const teacherMap = useMemo(() => new Map(teachers.map(teacher => [teacher.id, teacher])), [teachers]);
+  const controllerMode = userProfile?.role === 'controller';
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {
     const group = groupMap.get(item.groupId);
+    const teacher = teacherMap.get(item.teacherId ?? group?.teacherId ?? '');
     const datedHomework = Object.values(item.parentCommentByDate ?? {}).map(comments => comments[HOMEWORK_DATE_KEY] ?? '').join(' ');
-    const text = `${group?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''} ${datedHomework} ${item.room ? `кабинет ${item.room}` : ''}`.toLocaleLowerCase('ru');
+    const text = `${group?.name ?? ''} ${teacher?.name ?? ''} ${item.course ?? ''} ${item.topic ?? ''} ${item.homework ?? ''} ${datedHomework} ${item.room ? `кабинет ${item.room}` : ''}`.toLocaleLowerCase('ru');
     return (!selectedGroups.size || selectedGroups.has(item.groupId)) && text.includes(search.toLocaleLowerCase('ru'));
   }).flatMap(item => expandLessonOccurrences(item).map(({ occurrenceDate }) => {
     const group = groupMap.get(item.groupId);
+    const teacher = teacherMap.get(item.teacherId ?? group?.teacherId ?? '');
     const recurring = Boolean(item.recurrenceWeekdays?.length && item.recurrenceUntil);
     const tracksAttendance = ['group', 'pair', 'individual'].includes(group?.kind ?? 'group');
     const occurrenceHasEnded = DateTime.fromISO(`${occurrenceDate}T${item.endTime}`, { zone: 'Asia/Yekaterinburg' }) <= now.setZone('Asia/Yekaterinburg');
@@ -121,7 +125,7 @@ export function App() {
       : '';
     return {
       id: recurring ? `${item.id}__${occurrenceDate}` : item.id,
-      title: `${group?.name ?? 'Без группы'}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
+      title: `${group?.name ?? 'Без группы'}${controllerMode ? ` · ${teacher?.name || 'Учитель не назначен'}` : ''}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
       start: `${occurrenceDate}T${item.startTime}`,
       end: `${occurrenceDate}T${item.endTime}`,
       backgroundColor: group?.color ?? '#a98be8', borderColor: group?.color ?? '#a98be8',
@@ -129,7 +133,7 @@ export function App() {
       editable: !recurring,
       extendedProps: { lesson: item, occurrenceDate },
     };
-  })), [lessons, groupMap, selectedGroups, search, now]);
+  })), [lessons, groupMap, teacherMap, selectedGroups, search, now, controllerMode]);
 
   if (simpleGroupId) return <GroupParentPage groupId={simpleGroupId} studentId={simpleStudentId} studentName={simpleStudentName || 'ученика'} groupName={simpleGroupName} />;
   if (parentToken) return <ParentPage token={parentToken} />;
@@ -138,7 +142,8 @@ export function App() {
   const profile = userProfile;
   const canManage = ['owner', 'admin'].includes(profile.role);
   const teacherMode = profile.role === 'teacher';
-  if (!canManage && !teacherMode) return <main className="access-denied"><h1>Для вашей роли интерфейс пока не настроен</h1><button onClick={logout}>Выйти</button></main>;
+  const canViewParents = canManage || controllerMode;
+  if (!canManage && !teacherMode && !controllerMode) return <main className="access-denied"><h1>Для вашей роли интерфейс пока не настроен</h1><button onClick={logout}>Выйти</button></main>;
 
   const openNewLesson = (date?: string) => { setEditingLesson(null); setEditingOccurrenceDate(null); setInitialDate(date); setLessonDialog(true); };
   const toggleGroup = (id: string) => setSelectedGroups(current => {
@@ -432,13 +437,16 @@ export function App() {
     try { const patch = { endTime: DateTime.fromJSDate(info.event.end).toFormat('HH:mm') }; const lesson = info.event.extendedProps.lesson as Lesson; await updateLesson(info.event.id, patch); await publishPublicLesson(info.event.id, profile.schoolId, { ...lesson, ...patch }, groups.find(group => group.id === lesson.groupId)); await refreshParentViews(); }
     catch { info.revert(); setDataError('Не удалось изменить длительность.'); }
   }
+  const openedLessonGroup = editingLesson ? groupMap.get(editingLesson.groupId) : undefined;
+  const openedLessonTeacher = editingLesson ? teacherMap.get(editingLesson.teacherId ?? openedLessonGroup?.teacherId ?? '') : undefined;
 
   return <div className="app-shell">
-    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => setParentDialog(true)} onExportGroups={() => setExportDialog(true)} onLogout={logout} />
+    <Sidebar profile={userProfile} groups={groups} selected={selectedGroups} onToggle={toggleGroup} onAddGroup={() => { setEditingGroup(null); setGroupDialog(true); }} onEditGroup={group => { setEditingGroup(group); setGroupDialog(true); }} onDeleteGroup={deleteGroup} activeView={activeView} onNavigate={setActiveView} canManage={canManage} canViewParents={canViewParents} onManageTeachers={() => setTeacherDialog(true)} onManageParents={() => setParentDialog(true)} onExportGroups={() => setExportDialog(true)} onLogout={logout} />
     <main className="workspace">
       {activeView === 'payments' ? <PaymentsPage profile={profile} groups={groups} lessons={lessons} onError={setDataError} /> : <>
       <header className="topbar">
         <div><p className="eyebrow">КАЛЕНДАРЬ ШКОЛЫ</p><h1>Расписание</h1></div>
+        {controllerMode && <span className="controller-badge">Контроль · только просмотр</span>}
         <div className="clocks"><Clock3 size={18} /><div><span>Пермь {now.setZone('Asia/Yekaterinburg').toFormat('HH:mm')}</span><small>Москва {now.setZone('Europe/Moscow').toFormat('HH:mm')}</small></div><button onClick={() => setZone(zone === 'Asia/Yekaterinburg' ? 'Europe/Moscow' : 'Asia/Yekaterinburg')} title="Сменить часовой пояс"><ChevronLeft size={15} /><ChevronRight size={15} /></button></div>
         <label className="search-box"><Search size={18} /><input placeholder="Поиск занятий" value={search} onChange={e => setSearch(e.target.value)} /></label>
         {canManage && <button className="primary-button" onClick={() => openNewLesson()}><Plus size={18} />Новое занятие</button>}
@@ -467,8 +475,8 @@ export function App() {
     </main>
     {groupDialog && canManage && <GroupDialog group={editingGroup} onClose={() => { setGroupDialog(false); setEditingGroup(null); }} onSave={saveGroup} />}
     {teacherDialog && canManage && <TeacherAssignmentsDialog groups={groups} teachers={teachers} onAssign={assignTeacher} onSubstitute={assignSubstitute} onClose={() => setTeacherDialog(false)} />}
-    {parentDialog && canManage && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} onCreateStudent={addStudentManually} onCreateSimpleLink={prepareSimpleGroupLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
+    {parentDialog && canViewParents && <ParentAccessDialog students={students} groups={groups} lessons={lessons} access={parentAccess} syncing={parentSyncing} syncError={parentSyncError} readOnly={controllerMode} onCreateStudent={addStudentManually} onCreateSimpleLink={prepareSimpleGroupLink} onRename={renameParentStudent} onPrepare={rebuildParentView} onDisable={disableParentLink} onRebuild={syncParents} onClose={() => setParentDialog(false)} />}
     {exportDialog && canManage && <GroupsExportDialog groups={groups} lessons={lessons} students={students} access={parentAccess} teachers={teachers} syncing={parentSyncing} onClose={() => setExportDialog(false)} />}
-    {lessonDialog && <LessonDialog groups={groups} allLessons={lessons} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
+    {lessonDialog && <LessonDialog groups={groups} allLessons={lessons} lesson={editingLesson} occurrenceDate={editingOccurrenceDate} initialDate={initialDate} teacherMode={teacherMode} readOnly={controllerMode} teacherName={openedLessonTeacher?.name || openedLessonTeacher?.email} onClose={() => setLessonDialog(false)} onSave={saveLesson} onDelete={canManage && editingLesson ? deleteLesson : undefined} />}
   </div>;
 }

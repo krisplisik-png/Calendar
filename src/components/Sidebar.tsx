@@ -13,14 +13,16 @@ interface Props {
   activeView: 'calendar' | 'payments';
   onNavigate: (view: 'calendar' | 'payments') => void;
   canManage: boolean;
+  canViewParents: boolean;
   onManageTeachers: () => void;
   onManageParents: () => void;
   onExportGroups: () => void;
   onLogout: () => void;
 }
 
-export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEditGroup, onDeleteGroup, activeView, onNavigate, canManage, onManageTeachers, onManageParents, onExportGroups, onLogout }: Props) {
+export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEditGroup, onDeleteGroup, activeView, onNavigate, canManage, canViewParents, onManageTeachers, onManageParents, onExportGroups, onLogout }: Props) {
   const displayName = profile.name?.trim() || profile.email || 'Администратор';
+  const roleLabel = { owner: 'владелец', admin: 'администратор', teacher: 'учитель', controller: 'контролёр', parent: 'родитель' }[profile.role];
   const [pendingDelete, setPendingDelete] = useState<Group | null>(null);
   const [deleting, setDeleting] = useState(false);
   async function confirmDelete() {
@@ -37,7 +39,7 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEdi
   }
   return <aside className="sidebar">
     <div className="brand"><CalendarDays size={24} /><span>Мой календарь</span></div>
-    <nav className="sidebar-nav"><button className={activeView === 'calendar' ? 'nav-active' : ''} onClick={() => onNavigate('calendar')}><CalendarDays size={18} />Расписание</button>{canManage && <button className={activeView === 'payments' ? 'nav-active' : ''} onClick={() => onNavigate('payments')}><CreditCard size={18} />Оплаты</button>}{canManage && <button onClick={onManageTeachers}><GraduationCap size={18} />Учителя</button>}{canManage && <button onClick={onManageParents}><Link2 size={18} />Родительские ссылки</button>}{canManage && <button onClick={onExportGroups}><FileSpreadsheet size={18} />Экспорт в Excel</button>}</nav>
+    <nav className="sidebar-nav"><button className={activeView === 'calendar' ? 'nav-active' : ''} onClick={() => onNavigate('calendar')}><CalendarDays size={18} />Расписание</button>{canManage && <button className={activeView === 'payments' ? 'nav-active' : ''} onClick={() => onNavigate('payments')}><CreditCard size={18} />Оплаты</button>}{canManage && <button onClick={onManageTeachers}><GraduationCap size={18} />Учителя</button>}{canViewParents && <button onClick={onManageParents}><Link2 size={18} />Родительские ссылки</button>}{canManage && <button onClick={onExportGroups}><FileSpreadsheet size={18} />Экспорт в Excel</button>}</nav>
     <div className="sidebar-section">
       <div className="section-title"><span><Users size={16} />Ученики и группы</span>{canManage && <button onClick={onAddGroup} aria-label="Добавить ученика или группу"><Plus size={17} /></button>}</div>
       <div className="group-list">
@@ -57,7 +59,7 @@ export function Sidebar({ profile, groups, selected, onToggle, onAddGroup, onEdi
     </div>
     <div className="profile-block">
       <div className="avatar">{displayName.slice(0, 1).toUpperCase()}</div>
-      <div><strong>{displayName}</strong><small>{profile.role} · {profile.schoolId}</small></div>
+      <div><strong>{displayName}</strong><small>{roleLabel} · {profile.schoolId}</small></div>
       <button onClick={onLogout} aria-label="Выйти"><LogOut size={18} /></button>
     </div>
   </aside>;
