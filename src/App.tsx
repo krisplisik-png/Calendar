@@ -4,7 +4,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin, { type DateClickArg } from '@fullcalendar/interaction';
 import type { EventClickArg, EventDropArg, EventInput } from '@fullcalendar/core';
-import { ChevronLeft, ChevronRight, Clock3, Plus, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, Link2, Plus, Search } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useAuth } from './auth/AuthContext';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -449,6 +449,7 @@ export function App() {
         {controllerMode && <span className="controller-badge">Контроль · только просмотр</span>}
         <div className="clocks"><Clock3 size={18} /><div><span>Пермь {now.setZone('Asia/Yekaterinburg').toFormat('HH:mm')}</span><small>Москва {now.setZone('Europe/Moscow').toFormat('HH:mm')}</small></div><button onClick={() => setZone(zone === 'Asia/Yekaterinburg' ? 'Europe/Moscow' : 'Asia/Yekaterinburg')} title="Сменить часовой пояс"><ChevronLeft size={15} /><ChevronRight size={15} /></button></div>
         <label className="search-box"><Search size={18} /><input placeholder="Поиск занятий" value={search} onChange={e => setSearch(e.target.value)} /></label>
+        {controllerMode && <button className="primary-button" onClick={() => setParentDialog(true)}><Link2 size={18} />Родительские ссылки</button>}
         {canManage && <button className="primary-button" onClick={() => openNewLesson()}><Plus size={18} />Новое занятие</button>}
       </header>
       {dataError && <div className="data-error" role="alert">{dataError}<button onClick={() => setDataError(null)}>×</button></div>}
