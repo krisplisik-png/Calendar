@@ -1,5 +1,5 @@
 import {
-  addDoc, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc,
+  addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc,
   updateDoc, where, writeBatch, type DocumentData, type FirestoreError,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -262,6 +262,27 @@ export async function attachStudentToGroups(student: Student, groupIds: string[]
     const group = await getDoc(doc(db, 'groups', groupId));
     if (group.exists()) await updateGroup(groupId, { studentIds: Array.from(new Set([...(group.data().studentIds ?? []), student.id])) });
   }));
+}
+
+export async function replaceGroupStudentMembership(groupId: string, students: Student[], memberStudentIds: string[]) {
+  const members = Array.from(new Set(memberStudentIds));
+  const memberSet = new Set(members);
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'groups', groupId), { studentIds: members, updatedAt: serverTimestamp() });
+
+  students.forEach(student => {
+    const currentGroupIds = student.groupIds ?? [];
+    const isMember = currentGroupIds.includes(groupId);
+    const shouldBeMember = memberSet.has(student.id);
+    if (isMember === shouldBeMember && (!shouldBeMember || student.active !== false)) return;
+    batch.update(doc(db, 'students', student.id), {
+      ...(isMember === shouldBeMember ? {} : { groupIds: shouldBeMember ? arrayUnion(groupId) : arrayRemove(groupId) }),
+      ...(shouldBeMember ? { active: true } : {}),
+      updatedAt: serverTimestamp(),
+    });
+  });
+
+  await batch.commit();
 }
 
 export async function updateScheduledStudentName(schoolId: string, groupId: string, rosterId: string, previousName: string, fullName: string) {

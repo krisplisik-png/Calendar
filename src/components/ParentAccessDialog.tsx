@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Copy, ExternalLink, Link2, Pencil, Plus, RefreshCw, Search, Unlink, X } from 'lucide-react';
 import type { Group, Lesson, ParentAccess, Student } from '../types';
 import { pairStudentNames } from '../domain/groupStudents';
@@ -56,15 +56,20 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
   const automaticSimpleLinks = useMemo(() => {
     const result = new Map<string, SimpleGroupLink>();
     const rosterByGroupAndName = new Map<string, { id: string; fullName: string }>();
+    const groupsWithSavedRoster = new Set<string>();
+    const groupsWithLessons = new Set(lessons.filter(lesson => groupMap.has(lesson.groupId)).map(lesson => lesson.groupId));
 
-    lessons.forEach(lesson => lesson.studentRoster?.forEach(student => {
-      if (!student.fullName.trim() || !groupMap.has(lesson.groupId)) return;
-      rosterByGroupAndName.set(`${lesson.groupId}:${normalizeName(student.fullName)}`, student);
-    }));
+    lessons.forEach(lesson => {
+      if (Array.isArray(lesson.studentRoster) && groupMap.has(lesson.groupId)) groupsWithSavedRoster.add(lesson.groupId);
+      lesson.studentRoster?.forEach(student => {
+        if (!student.fullName.trim() || !groupMap.has(lesson.groupId)) return;
+        rosterByGroupAndName.set(`${lesson.groupId}:${normalizeName(student.fullName)}`, student);
+      });
+    });
 
     students.filter(student => student.active !== false).forEach(student => student.groupIds.forEach(groupId => {
       const group = groupMap.get(groupId);
-      if (!group) return;
+      if (!group || !groupsWithLessons.has(groupId) || groupsWithSavedRoster.has(groupId)) return;
       const key = `${groupId}:${normalizeName(student.fullName)}`;
       const rosterStudent = rosterByGroupAndName.get(key);
       result.set(key, {
@@ -79,6 +84,7 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
     // Some older groups contain the membership only in group.studentIds,
     // while newer records also keep it in student.groupIds. Read both forms.
     groupMap.forEach(group => (group.studentIds ?? []).forEach(studentId => {
+      if (!groupsWithLessons.has(group.id) || groupsWithSavedRoster.has(group.id)) return;
       const student = students.find(item => item.id === studentId && item.active !== false);
       if (!student) return;
       const key = `${group.id}:${normalizeName(student.fullName)}`;
@@ -105,6 +111,7 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
     // Expose both links immediately; opening either link completes the normal
     // student/roster synchronization in Firebase.
     groupMap.forEach(group => pairStudentNames(group).forEach((fullName, index) => {
+      if (!groupsWithLessons.has(group.id) || groupsWithSavedRoster.has(group.id)) return;
       const key = `${group.id}:${normalizeName(fullName)}`;
       if (result.has(key)) return;
       const rosterStudent = rosterByGroupAndName.get(key);
@@ -115,10 +122,27 @@ export function ParentAccessDialog({ students, groups, lessons, access, syncing,
   }, [students, lessons, groupMap]);
 
   const simpleLinks = useMemo(() => {
-    const result = new Map(manualSimpleLinks.map(link => [link.id, link]));
+    const automaticIds = new Set(automaticSimpleLinks.map(link => link.id));
+    const groupsWithSavedRoster = new Set(lessons.filter(lesson => Array.isArray(lesson.studentRoster)).map(lesson => lesson.groupId));
+    const groupsWithLessons = new Set(lessons.map(lesson => lesson.groupId));
+    const result = new Map(manualSimpleLinks
+      .filter(link => groupsWithLessons.has(link.groupId) && (automaticIds.has(link.id) || !groupsWithSavedRoster.has(link.groupId)))
+      .map(link => [link.id, link]));
     automaticSimpleLinks.forEach(link => result.set(link.id, link));
     return Array.from(result.values()).sort((a, b) => `${a.fullName}${a.groupName}`.localeCompare(`${b.fullName}${b.groupName}`, 'ru'));
-  }, [automaticSimpleLinks, manualSimpleLinks]);
+  }, [automaticSimpleLinks, manualSimpleLinks, lessons]);
+
+  useEffect(() => {
+    const automaticIds = new Set(automaticSimpleLinks.map(link => link.id));
+    const groupsWithSavedRoster = new Set(lessons.filter(lesson => Array.isArray(lesson.studentRoster)).map(lesson => lesson.groupId));
+    const groupsWithLessons = new Set(lessons.map(lesson => lesson.groupId));
+    setManualSimpleLinks(current => {
+      const updated = current.filter(link => groupsWithLessons.has(link.groupId) && (automaticIds.has(link.id) || !groupsWithSavedRoster.has(link.groupId)));
+      if (updated.length === current.length) return current;
+      localStorage.setItem(simpleLinksKey, JSON.stringify(updated));
+      return updated;
+    });
+  }, [automaticSimpleLinks, lessons]);
 
   const filteredSimpleLinks = useMemo(() => {
     const query = normalizeName(simpleSearch);

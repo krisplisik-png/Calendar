@@ -24,7 +24,7 @@ import { ParentAccessDialog } from './components/ParentAccessDialog';
 import { ParentPage } from './components/ParentPage';
 import { GroupParentPage } from './components/GroupParentPage';
 import { GroupsExportDialog } from './components/GroupsExportDialog';
-import { attachStudentToGroups, createStudent, disableParentLink, rebuildParentView, rebuildParentViewsForSchool, renameParentStudent, repairParentViewRootsForSchool, subscribeToParentAccess, subscribeToStudents, updateScheduledStudentName } from './data/firestore';
+import { attachStudentToGroups, createStudent, disableParentLink, rebuildParentView, rebuildParentViewsForSchool, renameParentStudent, repairParentViewRootsForSchool, replaceGroupStudentMembership, subscribeToParentAccess, subscribeToStudents, updateScheduledStudentName } from './data/firestore';
 import type { ParentAccess, Student } from './types';
 
 type Zone = 'Asia/Yekaterinburg' | 'Europe/Moscow';
@@ -196,6 +196,29 @@ export function App() {
       throw nextError;
     }
   }
+  async function synchronizeGroupRoster(groupId: string, roster: NonNullable<Lesson['studentRoster']>, savedLessonId: string) {
+    if (!canManage) return;
+    const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replaceAll('ё', 'е');
+    const uniqueRoster = Array.from(new Map(roster.map(student => [normalize(student.fullName), student])).values());
+    const knownStudents = [...students];
+    const memberStudentIds: string[] = [];
+
+    for (const rosterStudent of uniqueRoster) {
+      const normalizedName = normalize(rosterStudent.fullName);
+      let student = knownStudents.find(item => item.active !== false && (item.id === rosterStudent.id || normalize(item.fullName) === normalizedName));
+      if (!student) {
+        const reference = await createStudent(profile.schoolId, rosterStudent.fullName, [groupId]);
+        student = { id: reference.id, schoolId: profile.schoolId, fullName: rosterStudent.fullName, groupIds: [groupId], active: true } as Student;
+        knownStudents.push(student);
+      }
+      memberStudentIds.push(student.id);
+    }
+
+    await replaceGroupStudentMembership(groupId, knownStudents, memberStudentIds);
+    await Promise.all(lessons
+      .filter(lesson => lesson.groupId === groupId && lesson.id !== savedLessonId)
+      .map(lesson => updateLesson(lesson.id, { studentRoster: uniqueRoster })));
+  }
   async function saveLesson(input: LessonInput) {
     if (input.endTime <= input.startTime) throw new Error('Время окончания должно быть позже начала.');
     if (input.recurrenceUntil && input.recurrenceUntil < input.date) throw new Error('Дата окончания повторения не может быть раньше первого занятия.');
@@ -301,6 +324,13 @@ export function App() {
       await saveProgress(editingLesson.id);
       await saveNextHomework(editingLesson.id);
       await propagateCorrectedStudentNames();
+      await synchronizeGroupRoster(input.groupId, studentRoster, editingLesson.id);
+      if (editingLesson.groupId !== input.groupId) {
+        const previousGroupRoster = lessons
+          .filter(lesson => lesson.groupId === editingLesson.groupId && lesson.id !== editingLesson.id)
+          .flatMap(lesson => lesson.studentRoster ?? []);
+        await synchronizeGroupRoster(editingLesson.groupId, previousGroupRoster, editingLesson.id);
+      }
       await publishPublicLesson(editingLesson.id, profile.schoolId, { ...editingLesson, ...lessonPayload, studentRoster, parentCommentByDate }, selectedGroup);
       await publishCurrentProgress(editingLesson.id);
       await publishNextHomework(editingLesson.id, nextGroupOccurrence?.lesson.id);
@@ -308,6 +338,7 @@ export function App() {
       const newLesson = { ...lessonPayload, studentRoster, studentStatusByDate, attendanceCompletedDates, parentCommentByDate };
       const created = await createLesson(profile.schoolId, newLesson);
       await saveNextHomework(created.id);
+      await synchronizeGroupRoster(input.groupId, studentRoster, created.id);
       await publishPublicLesson(created.id, profile.schoolId, newLesson, selectedGroup);
       await publishCurrentProgress(created.id);
       await publishNextHomework(created.id);
