@@ -204,6 +204,7 @@ export function LessonDialog({ groups, allLessons = [], lesson, occurrenceDate, 
   return <div className="dialog-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
     <form className="dialog lesson-dialog" onSubmit={submit}>
       <header><div><p className="eyebrow">РАСПИСАНИЕ</p><h2>{readOnly ? 'Просмотр занятия' : lesson ? 'Редактировать занятие' : 'Новое занятие'}</h2></div><button type="button" onClick={onClose}><X /></button></header>
+      {lesson && !teacherMode && !readOnly && <div className="lesson-teacher-summary"><span>Преподаватель</span><strong>{teacherName || 'Не назначен'}</strong></div>}
       {teacherMode && <div className="teacher-mode-note">Режим учителя: можно отметить посещение и домашнюю работу, а также написать домашнее задание.</div>}
       {readOnly && <div className="teacher-mode-note"><strong>Только просмотр.</strong> Преподаватель: {teacherName || 'не назначен'}. Изменить или удалить данные нельзя.</div>}
       <fieldset className="lesson-kind-options">
