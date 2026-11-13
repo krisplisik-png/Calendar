@@ -106,6 +106,7 @@ export function App() {
   const groupMap = useMemo(() => new Map(groups.map(group => [group.id, group])), [groups]);
   const teacherMap = useMemo(() => new Map(teachers.map(teacher => [teacher.id, teacher])), [teachers]);
   const controllerMode = userProfile?.role === 'controller';
+  const showTeacherInCalendar = ['owner', 'admin', 'controller'].includes(userProfile?.role ?? '');
   const events = useMemo<EventInput[]>(() => lessons.filter(item => {
     const group = groupMap.get(item.groupId);
     const teacher = teacherMap.get(item.teacherId ?? group?.teacherId ?? '');
@@ -125,15 +126,15 @@ export function App() {
       : '';
     return {
       id: recurring ? `${item.id}__${occurrenceDate}` : item.id,
-      title: `${group?.name ?? 'Без группы'}${controllerMode ? ` · ${teacher?.name || 'Учитель не назначен'}` : ''}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
+      title: `${group?.name ?? 'Без группы'}${item.room ? ` · Каб. ${item.room}` : ''}${item.topic ? ` · ${item.topic}` : ''}`,
       start: `${occurrenceDate}T${item.startTime}`,
       end: `${occurrenceDate}T${item.endTime}`,
       backgroundColor: group?.color ?? '#a98be8', borderColor: group?.color ?? '#a98be8',
       classNames: attendanceState ? [attendanceState] : [],
       editable: !recurring,
-      extendedProps: { lesson: item, occurrenceDate },
+      extendedProps: { lesson: item, occurrenceDate, teacherName: teacher?.name || teacher?.email || 'Учитель не назначен' },
     };
-  })), [lessons, groupMap, teacherMap, selectedGroups, search, now, controllerMode]);
+  })), [lessons, groupMap, teacherMap, selectedGroups, search, now]);
 
   if (simpleGroupId) return <GroupParentPage groupId={simpleGroupId} studentId={simpleStudentId} studentName={simpleStudentName || 'ученика'} groupName={simpleGroupName} />;
   if (parentToken) return <ParentPage token={parentToken} />;
@@ -521,6 +522,10 @@ export function App() {
           headerToolbar={{ left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek,dayGridMonth' }}
           buttonText={{ today: 'Сегодня', day: 'День', week: 'Неделя', month: 'Месяц' }}
           events={events} editable={canManage} selectable={canManage} nowIndicator dayMaxEvents
+          eventContent={arg => <div className="calendar-event-content">
+            {showTeacherInCalendar && <strong className="calendar-event-teacher">{arg.event.extendedProps.teacherName}</strong>}
+            <span className="calendar-event-main">{arg.timeText && <b>{arg.timeText}</b>}{arg.event.title}</span>
+          </div>}
           slotMinTime="07:00:00" slotMaxTime="23:00:00" slotDuration="00:15:00"
           datesSet={arg => localStorage.setItem('calendar-view', arg.view.type)}
           dateClick={(arg: DateClickArg) => { if (canManage) openNewLesson(arg.dateStr.slice(0, 10)); }}
