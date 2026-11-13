@@ -390,10 +390,34 @@ export function App() {
   async function assignSubstitute(group: Group, substituteTeacherId: string, dateFrom: string, dateTo: string) {
     if (dateTo < dateFrom) throw new Error('Дата окончания замены не может быть раньше даты начала.');
     try {
-      await updateGroup(group.id, { authorizedTeacherIds: Array.from(new Set([...(group.authorizedTeacherIds ?? []), substituteTeacherId])) });
       let assignedCount = 0;
-      for (const source of lessons.filter(item => item.groupId === group.id && !item.substitutionDate)) {
-        const dates = expandLessonOccurrences(source).map(item => item.occurrenceDate).filter(date => date >= dateFrom && date <= dateTo);
+      const groupLessons = lessons.filter(item => item.groupId === group.id);
+      const assignedSlots = new Set<string>();
+      const slotKey = (date: string, lesson: Lesson) => `${date}|${lesson.startTime}|${lesson.endTime}`;
+
+      // A previously substituted occurrence is stored as a separate one-off
+      // lesson. It is visible in the calendar and must remain selectable for
+      // another replacement instead of being reported as a missing lesson.
+      for (const replacementLesson of groupLessons.filter(item => Boolean(item.substitutionDate))) {
+        const date = replacementLesson.substitutionDate ?? replacementLesson.date;
+        if (date < dateFrom || date > dateTo) continue;
+        const originalTeacherId = replacementLesson.substituteForTeacherId ?? group.teacherId ?? replacementLesson.teacherId ?? '';
+        const replacement = {
+          teacherId: substituteTeacherId,
+          substituteForTeacherId: originalTeacherId,
+          authorizedTeacherIds: originalTeacherId && originalTeacherId !== substituteTeacherId ? [originalTeacherId] : [],
+        };
+        await updateLesson(replacementLesson.id, replacement);
+        await publishPublicLesson(replacementLesson.id, profile.schoolId, { ...replacementLesson, ...replacement }, group);
+        assignedSlots.add(slotKey(date, replacementLesson));
+        assignedCount += 1;
+      }
+
+      for (const source of groupLessons.filter(item => !item.substitutionDate)) {
+        const dates = expandLessonOccurrences(source)
+          .map(item => item.occurrenceDate)
+          .filter(date => date >= dateFrom && date <= dateTo)
+          .filter(date => !assignedSlots.has(slotKey(date, source)));
         if (!dates.length) continue;
         if (source.recurrenceWeekdays?.length && source.recurrenceUntil) {
           for (const date of dates) {
@@ -436,6 +460,9 @@ export function App() {
           await publishPublicLesson(source.id, profile.schoolId, { ...source, ...replacement }, group);
           assignedCount += 1;
         }
+      }
+      if (assignedCount) {
+        await updateGroup(group.id, { authorizedTeacherIds: Array.from(new Set([...(group.authorizedTeacherIds ?? []), substituteTeacherId])) });
       }
       await refreshParentViews();
       return assignedCount;
